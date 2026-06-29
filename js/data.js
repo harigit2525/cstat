@@ -1,8 +1,21 @@
 // ============================================================
-// CStat — data.js  |  Seed Data & LocalStorage Helpers
+// CStat — data.js  |  Firebase Integration & Sync Helpers
 // ============================================================
 
-const DB_KEY = 'cstat_db';
+const firebaseConfig = {
+  apiKey: "AIzaSyAAS0p483n8eTFMChDD_y8UOxhsZKyJj7c",
+  authDomain: "cstat-e7e92.firebaseapp.com",
+  projectId: "cstat-e7e92",
+  storageBucket: "cstat-e7e92.firebasestorage.app",
+  messagingSenderId: "484771515339",
+  appId: "1:484771515339:web:833bc594d9a8f19da6c44e",
+  measurementId: "G-KEF3QEVH8S"
+};
+
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const firestore = firebase.firestore();
+const auth = firebase.auth();
 
 // ─── Empty Database Structure ────────────────────────────────
 const EMPTY_DB = {
@@ -19,21 +32,47 @@ const EMPTY_DB = {
   departments: []
 };
 
+let memoryDB = { ...EMPTY_DB };
+let dbLoaded = false;
+
 // ─── DB Helper ───────────────────────────────────────────────
 const DB = {
-  init() {
-    if (!localStorage.getItem(DB_KEY)) {
-      localStorage.setItem(DB_KEY, JSON.stringify(EMPTY_DB));
-    }
+  async init() {
+    return new Promise((resolve) => {
+      // Listen to Firestore document updates in real-time
+      firestore.collection("appData").doc("main").onSnapshot((doc) => {
+        if (doc.exists) {
+          memoryDB = { ...EMPTY_DB, ...doc.data() };
+        } else {
+          // If no document exists, bootstrap with empty DB
+          firestore.collection("appData").doc("main").set(EMPTY_DB);
+          memoryDB = { ...EMPTY_DB };
+        }
+        if (!dbLoaded) {
+          dbLoaded = true;
+          resolve();
+        }
+      }, (error) => {
+        console.error("Firestore sync error:", error);
+        // Fallback resolve to prevent application hang
+        if (!dbLoaded) {
+          dbLoaded = true;
+          resolve();
+        }
+      });
+    });
   },
   get() {
-    return JSON.parse(localStorage.getItem(DB_KEY)) || EMPTY_DB;
+    return memoryDB;
   },
   set(data) {
-    localStorage.setItem(DB_KEY, JSON.stringify(data));
+    memoryDB = data;
+    firestore.collection("appData").doc("main").set(data).catch(err => {
+      console.error("Error setting database document:", err);
+    });
   },
   reset() {
-    localStorage.setItem(DB_KEY, JSON.stringify(EMPTY_DB));
+    this.set(EMPTY_DB);
   },
 
   // ── Institutions ──
@@ -55,19 +94,23 @@ const DB = {
   // ── Users ──
   getUsers(role = null, instId = null) {
     const db = this.get();
-    let users = db.users;
+    let users = db.users || [];
     if (role) users = users.filter(u => u.role === role);
     if (instId) users = users.filter(u => u.institutionId === instId);
     return users;
   },
   getUserById(id) {
-    return this.get().users.find(u => u.id === id) || null;
+    return this.getUsers().find(u => u.id === id) || null;
+  },
+  getUserByEmail(email) {
+    return this.getUsers().find(u => u.email === email) || null;
   },
   authenticate(id, password) {
-    return this.get().users.find(u => u.id === id && u.password === password) || null;
+    return this.getUsers().find(u => u.id === id && u.password === password) || null;
   },
   addUser(user) {
     const db = this.get();
+    if (!db.users) db.users = [];
     db.users.push(user);
     this.set(db);
   },
@@ -84,17 +127,17 @@ const DB = {
 
   // ── Subjects ──
   getSubjects(filter = {}) {
-    let subjects = this.get().subjects;
+    let subjects = this.get().subjects || [];
     if (filter.facultyId) subjects = subjects.filter(s => s.facultyId === filter.facultyId);
     if (filter.batch) subjects = subjects.filter(s => s.batch === filter.batch);
     if (filter.department) subjects = subjects.filter(s => s.department === filter.department);
     return subjects;
   },
-  getSubjectById(id) { return this.get().subjects.find(s => s.id === id); },
+  getSubjectById(id) { return (this.get().subjects || []).find(s => s.id === id); },
 
   // ── Timetable ──
   getTimetable(filter = {}) {
-    let tt = this.get().timetable;
+    let tt = this.get().timetable || [];
     if (filter.batch) tt = tt.filter(t => t.batch === filter.batch);
     if (filter.day) tt = tt.filter(t => t.day === filter.day);
     if (filter.facultyId) tt = tt.filter(t => t.facultyId === filter.facultyId);
@@ -103,7 +146,7 @@ const DB = {
 
   // ── Student Attendance ──
   getStudentAttendance(filter = {}) {
-    let sa = this.get().studentAttendance;
+    let sa = this.get().studentAttendance || [];
     if (filter.studentId) sa = sa.filter(a => a.studentId === filter.studentId);
     if (filter.subjectId) sa = sa.filter(a => a.subjectId === filter.subjectId);
     if (filter.date) sa = sa.filter(a => a.date === filter.date);
@@ -112,6 +155,7 @@ const DB = {
   },
   addStudentAttendance(record) {
     const db = this.get();
+    if (!db.studentAttendance) db.studentAttendance = [];
     const exists = db.studentAttendance.find(a =>
       a.studentId === record.studentId &&
       a.subjectId === record.subjectId &&
@@ -129,13 +173,14 @@ const DB = {
 
   // ── Faculty Attendance ──
   getFacultyAttendance(filter = {}) {
-    let fa = this.get().facultyAttendance;
+    let fa = this.get().facultyAttendance || [];
     if (filter.facultyId) fa = fa.filter(a => a.facultyId === filter.facultyId);
     if (filter.date) fa = fa.filter(a => a.date === filter.date);
     return fa;
   },
   addFacultyAttendance(record) {
     const db = this.get();
+    if (!db.facultyAttendance) db.facultyAttendance = [];
     const exists = db.facultyAttendance.find(a =>
       a.facultyId === record.facultyId && a.date === record.date
     );
@@ -150,19 +195,22 @@ const DB = {
 
   // ── Assignments ──
   getAssignments(filter = {}) {
-    let asgn = this.get().assignments;
+    let asgn = this.get().assignments || [];
     if (filter.facultyId) asgn = asgn.filter(a => a.facultyId === filter.facultyId);
     if (filter.batch) asgn = asgn.filter(a => a.batch === filter.batch);
     if (filter.subjectId) asgn = asgn.filter(a => a.subjectId === filter.subjectId);
     return asgn;
   },
   addAssignment(asgn) {
-    const db = this.get(); db.assignments.push(asgn); this.set(db);
+    const db = this.get();
+    if (!db.assignments) db.assignments = [];
+    db.assignments.push(asgn); this.set(db);
   },
   submitAssignment(asgnId, submission) {
     const db = this.get();
     const asgn = db.assignments.find(a => a.id === asgnId);
     if (asgn) {
+      if (!asgn.submissions) asgn.submissions = [];
       const existIdx = asgn.submissions.findIndex(s => s.studentId === submission.studentId);
       if (existIdx !== -1) asgn.submissions[existIdx] = submission;
       else asgn.submissions.push(submission);
@@ -172,25 +220,29 @@ const DB = {
 
   // ── Marks ──
   getMarks(filter = {}) {
-    let marks = this.get().marks;
+    let marks = this.get().marks || [];
     if (filter.studentId) marks = marks.filter(m => m.studentId === filter.studentId);
     if (filter.subjectId) marks = marks.filter(m => m.subjectId === filter.subjectId);
     return marks;
   },
   addMark(mark) {
-    const db = this.get(); db.marks.push(mark); this.set(db);
+    const db = this.get();
+    if (!db.marks) db.marks = [];
+    db.marks.push(mark); this.set(db);
   },
 
   // ── Leave Requests ──
   getLeaveRequests(filter = {}) {
-    let lr = this.get().leaveRequests;
+    let lr = this.get().leaveRequests || [];
     if (filter.userId) lr = lr.filter(l => l.userId === filter.userId);
     if (filter.role) lr = lr.filter(l => l.role === filter.role);
     if (filter.status) lr = lr.filter(l => l.status === filter.status);
     return lr;
   },
   addLeaveRequest(req) {
-    const db = this.get(); db.leaveRequests.push(req); this.set(db);
+    const db = this.get();
+    if (!db.leaveRequests) db.leaveRequests = [];
+    db.leaveRequests.push(req); this.set(db);
   },
   updateLeaveRequest(id, updates) {
     const db = this.get();
@@ -200,16 +252,18 @@ const DB = {
 
   // ── Announcements ──
   getAnnouncements(audience = null) {
-    let ann = this.get().announcements;
+    let ann = this.get().announcements || [];
     if (audience) ann = ann.filter(a => a.audience === 'all' || a.audience === audience);
     return ann.sort((a, b) => new Date(b.date) - new Date(a.date));
   },
   addAnnouncement(ann) {
-    const db = this.get(); db.announcements.push(ann); this.set(db);
+    const db = this.get();
+    if (!db.announcements) db.announcements = [];
+    db.announcements.push(ann); this.set(db);
   },
 
   // ── Departments ──
-  getDepartments() { return this.get().departments; },
+  getDepartments() { return this.get().departments || []; },
 
   // ── Utility: Attendance % for a student per subject ──
   getStudentAttendanceStats(studentId) {
@@ -218,7 +272,7 @@ const DB = {
     if (!user) return [];
     const subjects = this.getSubjects({ batch: user.batch });
     return subjects.map(sub => {
-      const records = db.studentAttendance.filter(a => a.studentId === studentId && a.subjectId === sub.id);
+      const records = (db.studentAttendance || []).filter(a => a.studentId === studentId && a.subjectId === sub.id);
       const total = records.length;
       const present = records.filter(a => a.status === 'present').length;
       const late = records.filter(a => a.status === 'late').length;

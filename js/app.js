@@ -235,32 +235,34 @@ const App = {
   },
 
   mockGoogleSignIn(source) {
-    // Simulate OAuth delay
-    const btn = document.querySelector(`#${source}-page .google-btn`);
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<span class="icon-refresh spinner"></span> Connecting to Google...';
-    btn.disabled = true;
+    const provider = new firebase.auth.GoogleAuthProvider();
+    firebase.auth().signInWithPopup(provider)
+      .then((result) => {
+        const email = result.user.email;
+        const name = result.user.displayName;
+        const existingUser = DB.getUserByEmail(email);
 
-    setTimeout(() => {
-      btn.innerHTML = originalText;
-      btn.disabled = false;
-      
-      // Look for any existing admin to login as, or show a toast
-      const users = DB.getUsers();
-      if (users.length > 0) {
-        const user = users[0]; // Just grab the first user for demo
-        this.showToast('Google Sign-In successful!', 'success');
-        this.requestOTP(user.email, () => {
-          this.sessionToken = this.generateToken(user);
-          sessionStorage.setItem('cstat_session', this.sessionToken);
-          this.currentUser = user;
-          this.showApp();
-          this.navigate(user.role + '-dashboard');
-        });
-      } else {
-        this.showToast('Google Sign-In failed. No accounts found in DB. Please register.', 'error');
-      }
-    }, 1500);
+        if (existingUser) {
+          this.showToast('Google Sign-In successful!', 'success');
+          this.requestOTP(existingUser.email, () => {
+            this.sessionToken = this.generateToken(existingUser);
+            sessionStorage.setItem('cstat_session', this.sessionToken);
+            this.currentUser = existingUser;
+            this.showApp();
+            this.navigate(existingUser.role + '-dashboard');
+          });
+        } else {
+          this.showToast('Google login successful! Please complete your profile registration.', 'info');
+          this.showRegister();
+          document.getElementById('reg-name').value = name || '';
+          document.getElementById('reg-email').value = email || '';
+          document.getElementById('reg-pw').value = 'GoogleLinkedAccount1!'; // Auto-satisfies password constraints
+        }
+      })
+      .catch((error) => {
+        console.error("Google Auth error:", error);
+        this.showToast('Google Sign-In failed: ' + error.message, 'error');
+      });
   },
 
   // ─── Sidebar ─────────────────────────────────────────────
@@ -586,8 +588,8 @@ const App = {
   },
 
   // ─── Init ────────────────────────────────────────────────
-  init() {
-    DB.init();
+  async init() {
+    await DB.init();
 
     // Try restoring session
     if (this.restoreSession()) {
