@@ -75,27 +75,27 @@ const App = {
           btnEl.disabled = false;
           btnEl.innerHTML = '<span class="icon-lock"></span> Sign In';
         }
-        // Track failed attempts
-        const attempts = parseInt(sessionStorage.getItem('login_attempts') || '0') + 1;
-        sessionStorage.setItem('login_attempts', attempts.toString());
-        if (attempts >= 3) {
-          this.showLoginError('Multiple failed attempts detected. Please verify your credentials carefully.');
-        }
         return;
       }
 
-      // Success — create session
-      this.currentUser = user;
-      this.sessionToken = this.generateToken(user);
-      sessionStorage.setItem(this.SESSION_KEY, this.sessionToken);
-      sessionStorage.setItem('login_attempts', '0');
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.innerHTML = '<span class="icon-lock"></span> Sign In';
+      }
 
-      // Log login activity
-      console.log(`[CStat Auth] Login successful: ${user.name} (${user.role})`);
+      this.requestOTP(user.email, () => {
+        // Success — create session
+        this.currentUser = user;
+        this.sessionToken = this.generateToken(user);
+        sessionStorage.setItem(this.SESSION_KEY, this.sessionToken);
 
-      this.showApp();
-      this.navigate(user.role + '-dashboard');
-      this.showToast(`Welcome back, ${user.name.split(' ')[0]}!`, 'success');
+        // Log login activity
+        console.log(`[CStat Auth] Login successful: ${user.name} (${user.role})`);
+
+        this.showApp();
+        this.navigate(user.role + '-dashboard');
+        this.showToast(`Welcome back, ${user.name.split(' ')[0]}!`, 'success');
+      });
     }, 600);
   },
 
