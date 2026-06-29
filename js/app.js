@@ -83,19 +83,17 @@ const App = {
         btnEl.innerHTML = '<span class="icon-lock"></span> Sign In';
       }
 
-      this.requestOTP(user.email, () => {
-        // Success — create session
-        this.currentUser = user;
-        this.sessionToken = this.generateToken(user);
-        sessionStorage.setItem(this.SESSION_KEY, this.sessionToken);
+      // Success — create session
+      this.currentUser = user;
+      this.sessionToken = this.generateToken(user);
+      sessionStorage.setItem(this.SESSION_KEY, this.sessionToken);
 
-        // Log login activity
-        console.log(`[CStat Auth] Login successful: ${user.name} (${user.role})`);
+      // Log login activity
+      console.log(`[CStat Auth] Login successful: ${user.name} (${user.role})`);
 
-        this.showApp();
-        this.navigate(user.role + '-dashboard');
-        this.showToast(`Welcome back, ${user.name.split(' ')[0]}!`, 'success');
-      });
+      this.showApp();
+      this.navigate(user.role + '-dashboard');
+      this.showToast(`Welcome back, ${user.name.split(' ')[0]}!`, 'success');
     }, 600);
   },
 
@@ -193,76 +191,6 @@ const App = {
     // 8 chars, 1 uppercase, 1 number
     const re = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
     return re.test(pw);
-  },
-
-  requestOTP(email, onSuccessCallback) {
-    const modal = document.getElementById('otp-modal');
-    modal.style.display = 'flex';
-    document.getElementById('otp-message').textContent = `We've sent a 4-digit verification code to ${email || 'your device'}.`;
-    
-    const inputs = document.querySelectorAll('.otp-digit');
-    inputs.forEach(input => input.value = '');
-    if(inputs.length > 0) inputs[0].focus();
-
-    // Setup input auto-advance
-    inputs.forEach((input, index) => {
-      input.oninput = (e) => {
-        if(e.target.value && index < inputs.length - 1) inputs[index + 1].focus();
-      };
-      input.onkeydown = (e) => {
-        if(e.key === 'Backspace' && !e.target.value && index > 0) {
-          inputs[index - 1].focus();
-        }
-      };
-    });
-
-    const form = document.getElementById('otp-form');
-    // Clear previous event listeners by replacing node
-    const newForm = form.cloneNode(true);
-    form.parentNode.replaceChild(newForm, form);
-
-    newForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const code = Array.from(document.querySelectorAll('.otp-digit')).map(i => i.value).join('');
-      if (code === '1234') {
-        document.getElementById('otp-modal').style.display = 'none';
-        this.showToast('Identity verified successfully!', 'success');
-        if (onSuccessCallback) onSuccessCallback();
-      } else {
-        this.showToast('Invalid verification code. Try 1234.', 'error');
-      }
-    });
-  },
-
-  mockGoogleSignIn(source) {
-    const provider = new firebase.auth.GoogleAuthProvider();
-    firebase.auth().signInWithPopup(provider)
-      .then((result) => {
-        const email = result.user.email;
-        const name = result.user.displayName;
-        const existingUser = DB.getUserByEmail(email);
-
-        if (existingUser) {
-          this.showToast('Google Sign-In successful!', 'success');
-          this.requestOTP(existingUser.email, () => {
-            this.sessionToken = this.generateToken(existingUser);
-            sessionStorage.setItem('cstat_session', this.sessionToken);
-            this.currentUser = existingUser;
-            this.showApp();
-            this.navigate(existingUser.role + '-dashboard');
-          });
-        } else {
-          this.showToast('Google login successful! Please complete your profile registration.', 'info');
-          this.showRegister();
-          document.getElementById('reg-name').value = name || '';
-          document.getElementById('reg-email').value = email || '';
-          document.getElementById('reg-pw').value = 'GoogleLinkedAccount1!'; // Auto-satisfies password constraints
-        }
-      })
-      .catch((error) => {
-        console.error("Google Auth error:", error);
-        this.showToast('Google Sign-In failed: ' + error.message, 'error');
-      });
   },
 
   // ─── Sidebar ─────────────────────────────────────────────
@@ -683,17 +611,15 @@ const App = {
 
         DB.addUser(user);
         
-        this.requestOTP(user.email, () => {
-          this.showToast(`Account created! Your User ID is ${user.id}. Please remember this.`, 'success');
-          // Auto-login after OTP success
-          setTimeout(() => {
-            this.sessionToken = this.generateToken(user);
-            sessionStorage.setItem('cstat_session', this.sessionToken);
-            this.currentUser = user;
-            this.showApp();
-            this.navigate(user.role + '-dashboard');
-          }, 500);
-        });
+        this.showToast(`Account created! Your User ID is ${user.id}. Please remember this.`, 'success');
+        // Auto-login immediately
+        setTimeout(() => {
+          this.sessionToken = this.generateToken(user);
+          sessionStorage.setItem('cstat_session', this.sessionToken);
+          this.currentUser = user;
+          this.showApp();
+          this.navigate(user.role + '-dashboard');
+        }, 1000);
       });
     }
     
