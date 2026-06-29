@@ -264,43 +264,177 @@ const AdminViews = {
 
   departments() {
     const depts = DB.getDepartments();
-    document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn"><div class="page-header"><h2>Departments</h2></div>
+    document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn">
+      <div class="page-header"><h2>Departments</h2><button class="btn btn-primary" id="add-dept-btn"><span class="icon-add"></span> Add Department</button></div>
       <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
         ${depts.map(d => { const head = DB.getUserById(d.head); const fc = DB.getUsers('faculty').filter(f => f.department === d.name).length; const sc = DB.getUsers('student').filter(s => s.department === d.name).length;
-          return `<div class="stat-card"><div class="stat-icon primary">📚</div><div class="stat-value" style="font-size:var(--fs-lg)">${d.name}</div><div class="stat-label">Head: ${head ? head.name : '-'}</div><div class="divider"></div><div class="flex-between" style="font-size:var(--fs-sm)"><span>Faculty: <strong>${fc}</strong></span><span>Students: <strong>${sc}</strong></span></div><div class="mt-2 text-muted" style="font-size:var(--fs-xs)">Batches: ${d.batches.join(', ')}</div></div>`; }).join('')}
+          return `<div class="stat-card"><div class="stat-icon primary">📚</div><div class="stat-value" style="font-size:var(--fs-lg)">${d.name}</div><div class="stat-label">Head: ${head ? head.name : '-'}</div><div class="divider"></div><div class="flex-between" style="font-size:var(--fs-sm)"><span>Faculty: <strong>${fc}</strong></span><span>Students: <strong>${sc}</strong></span></div><div class="mt-2 text-muted" style="font-size:var(--fs-xs)">Batches: ${d.batches ? d.batches.join(', ') : ''}</div></div>`; }).join('') || '<p class="text-muted text-center p-4">No departments registered</p>'}
       </div></div>`;
+    
+    setTimeout(() => {
+      document.getElementById('add-dept-btn').addEventListener('click', () => this._addDeptModal());
+    }, 0);
   },
 
-  reports() {
-    const depts = DB.getDepartments(); const allStu = DB.getUsers('student'); const allSA = DB.getStudentAttendance({});
-    const totalR = allSA.length; const totalP = allSA.filter(a => a.status === 'present' || a.status === 'late').length;
-    const overallPct = totalR > 0 ? Math.round((totalP / totalR) * 100) : 0;
-    const deptData = depts.map(d => { const ds = allStu.filter(s => s.department === d.name); const dr = allSA.filter(a => ds.some(s => s.id === a.studentId)); const dp = dr.filter(a => a.status === 'present' || a.status === 'late').length; const pct = dr.length > 0 ? Math.round((dp / dr.length) * 100) : 0; return { name: d.name, pct }; });
+  _addDeptModal() {
+    const faculty = DB.getUsers('faculty');
+    App.showModal('Add Department', `
+      <div class="form-group"><label class="form-label">Department Name</label><input class="form-input" id="dept-name" required placeholder="e.g. Computer Science"/></div>
+      <div class="form-group"><label class="form-label">Department Head</label><select class="form-select" id="dept-head"><option value="">Select Faculty Head</option>${faculty.map(f => `<option value="${f.id}">${f.name}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">Batches (Comma-separated)</label><input class="form-input" id="dept-batches" placeholder="e.g. CS-2026, CS-2027" required/></div>
+    `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="dept-save">Save</button>`);
 
-    document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn"><div class="page-header"><h2>Reports & Analytics</h2></div>
-      <div class="stats-grid" style="grid-template-columns:repeat(2,1fr)">
-        <div class="stat-card"><div class="stat-icon primary">📊</div><div class="stat-value">${overallPct}%</div><div class="stat-label">Overall Student Attendance</div></div>
-        <div class="stat-card"><div class="stat-icon secondary">📋</div><div class="stat-value">${totalR}</div><div class="stat-label">Total Records</div></div>
-      </div>
-      <div class="glass-card"><div class="card-header"><h4>Department-wise Attendance</h4></div><div class="card-body">
-        ${deptData.map(d => `<div style="margin-bottom:20px"><div class="flex-between mb-2"><span style="font-weight:600">${d.name}</span><span>${d.pct}%</span></div><div class="attendance-bar"><div class="fill ${d.pct >= 75 ? 'green' : d.pct >= 60 ? 'amber' : 'rose'}" style="width:${d.pct}%"></div></div></div>`).join('')}
-      </div></div></div>`;
+    setTimeout(() => {
+      document.getElementById('dept-save').addEventListener('click', () => {
+        const name = document.getElementById('dept-name').value.trim();
+        const head = document.getElementById('dept-head').value;
+        const batchesInput = document.getElementById('dept-batches').value.trim();
+
+        if (!name || !batchesInput) {
+          App.showToast('Please fill all required fields', 'error');
+          return;
+        }
+
+        const db = DB.get();
+        if (!db.departments) db.departments = [];
+        db.departments.push({
+          id: genId('DEPT'),
+          name,
+          head,
+          batches: batchesInput.split(',').map(b => b.trim()).filter(Boolean)
+        });
+        DB.set(db);
+        App.closeModal();
+        App.showToast('Department added successfully', 'success');
+        this.departments();
+      });
+    }, 0);
   },
 
   timetableView() {
     const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    const batches = DB.getDepartments().flatMap(d => d.batches); const defBatch = batches[0] || '';
-    const renderTT = (batch, day) => { const tt = DB.getTimetable({ batch, day }); if (!tt.length) return '<p class="text-muted text-center p-4">No classes</p>';
+    const batches = DB.getDepartments().flatMap(d => d.batches || []); const defBatch = batches[0] || '';
+    const renderTT = (batch, day) => { const tt = DB.getTimetable({ batch, day }); if (!tt.length) return '<p class="text-muted text-center p-4">No classes scheduled</p>';
       return `<table class="data-table"><thead><tr><th>Period</th><th>Time</th><th>Subject</th><th>Faculty</th><th>Room</th></tr></thead><tbody>${tt.sort((a,b) => a.period - b.period).map(t => { const sub = DB.getSubjectById(t.subjectId); const fac = DB.getUserById(t.facultyId); return `<tr><td>P${t.period}</td><td>${t.time}</td><td>${sub ? sub.name : '-'}</td><td>${fac ? fac.name : '-'}</td><td>${t.room}</td></tr>`; }).join('')}</tbody></table>`; };
 
-    document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn"><div class="page-header"><h2>Timetable Management</h2></div>
-      <div class="filter-row"><div class="form-group"><label class="form-label">Batch</label><select class="form-select" id="tt-batch">${batches.map(b => `<option>${b}</option>`).join('')}</select></div></div>
+    document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn">
+      <div class="page-header"><h2>Timetable Management</h2><div class="page-header-actions"><button class="btn btn-secondary" id="add-subject-btn" style="margin-right:8px"><span class="icon-add"></span> Add Subject</button><button class="btn btn-primary" id="add-class-btn"><span class="icon-add"></span> Add Class</button></div></div>
+      <div class="filter-row"><div class="form-group"><label class="form-label">Batch</label><select class="form-select" id="tt-batch">${batches.map(b => `<option>${b}</option>`).join('') || '<option value="">No batches available</option>'}</select></div></div>
       <div class="tab-nav" id="tt-days">${days.map(d => `<button class="tab-btn ${d === dayName() ? 'active' : ''}" data-day="${d}">${d.substring(0,3)}</button>`).join('')}</div>
       <div id="tt-out" class="glass-card"><div class="card-body">${renderTT(defBatch, dayName() || 'Monday')}</div></div></div>`;
+    
     setTimeout(() => {
       const upd = () => { const b = document.getElementById('tt-batch').value; const ad = document.querySelector('#tt-days .tab-btn.active'); document.querySelector('#tt-out .card-body').innerHTML = renderTT(b, ad ? ad.dataset.day : 'Monday'); };
       document.querySelectorAll('#tt-days .tab-btn').forEach(btn => btn.addEventListener('click', () => { document.querySelectorAll('#tt-days .tab-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); upd(); }));
       document.getElementById('tt-batch').addEventListener('change', upd);
+      
+      document.getElementById('add-class-btn').addEventListener('click', () => this._addTimetableModal());
+      document.getElementById('add-subject-btn').addEventListener('click', () => this._addSubjectModal());
+    }, 0);
+  },
+
+  _addSubjectModal() {
+    const faculty = DB.getUsers('faculty');
+    const depts = DB.getDepartments();
+    const batches = depts.flatMap(d => d.batches || []);
+
+    App.showModal('Add Subject', `
+      <div class="form-group"><label class="form-label">Subject Name</label><input class="form-input" id="sub-name" required placeholder="e.g. Data Structures"/></div>
+      <div class="form-group"><label class="form-label">Subject Code</label><input class="form-input" id="sub-code" required placeholder="e.g. CS-201"/></div>
+      <div class="form-group"><label class="form-label">Faculty Teacher</label><select class="form-select" id="sub-fac" required><option value="">Select Faculty</option>${faculty.map(f => `<option value="${f.id}">${f.name}</option>`).join('')}</select></div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Department</label><select class="form-select" id="sub-dept" required>${depts.map(d => `<option>${d.name}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Batch</label><select class="form-select" id="sub-batch" required>${batches.map(b => `<option>${b}</option>`).join('')}</select></div>
+      </div>
+    `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="sub-save">Save</button>`);
+
+    setTimeout(() => {
+      document.getElementById('sub-save').addEventListener('click', () => {
+        const name = document.getElementById('sub-name').value.trim();
+        const code = document.getElementById('sub-code').value.trim();
+        const facultyId = document.getElementById('sub-fac').value;
+        const department = document.getElementById('sub-dept').value;
+        const batch = document.getElementById('sub-batch').value;
+
+        if (!name || !code || !facultyId || !department || !batch) {
+          App.showToast('Please fill all required fields', 'error');
+          return;
+        }
+
+        const db = DB.get();
+        if (!db.subjects) db.subjects = [];
+        const id = genId('SUB');
+        db.subjects.push({ id, name, code, facultyId, department, batch });
+        DB.set(db);
+        App.closeModal();
+        App.showToast('Subject created successfully', 'success');
+      });
+    }, 0);
+  },
+
+  _addTimetableModal() {
+    const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const depts = DB.getDepartments();
+    const batches = depts.flatMap(d => d.batches || []);
+    const faculty = DB.getUsers('faculty');
+    const subjects = DB.getSubjects();
+
+    App.showModal('Add Timetable Class', `
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Batch</label><select class="form-select" id="add-tt-batch" required>${batches.map(b => `<option>${b}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Day</label><select class="form-select" id="add-tt-day" required>${days.map(d => `<option>${d}</option>`).join('')}</select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Period</label><select class="form-select" id="add-tt-period" required>${Array.from({length:8}, (_,i)=>`<option value="${i+1}">P${i+1}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Time Slot</label><input class="form-input" id="add-tt-time" required placeholder="e.g. 09:00 - 10:00"/></div>
+      </div>
+      <div class="form-group"><label class="form-label">Subject</label><select class="form-select" id="add-tt-sub" required><option value="">Select Subject</option>${subjects.map(s => `<option value="${s.id}">${s.name} (${s.code})</option>`).join('')}</select></div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Faculty</label><select class="form-select" id="add-tt-fac" required><option value="">Select Faculty</option>${faculty.map(f => `<option value="${f.id}">${f.name}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Room</label><input class="form-input" id="add-tt-room" required placeholder="e.g. Room 402"/></div>
+      </div>
+    `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="add-tt-save">Save</button>`);
+
+    setTimeout(() => {
+      document.getElementById('add-tt-save').addEventListener('click', () => {
+        const batch = document.getElementById('add-tt-batch').value;
+        const day = document.getElementById('add-tt-day').value;
+        const period = parseInt(document.getElementById('add-tt-period').value);
+        const time = document.getElementById('add-tt-time').value.trim();
+        const subjectId = document.getElementById('add-tt-sub').value;
+        const facultyId = document.getElementById('add-tt-fac').value;
+        const room = document.getElementById('add-tt-room').value.trim();
+
+        if (!batch || !day || !time || !subjectId || !facultyId || !room) {
+          App.showToast('Please fill all required fields', 'error');
+          return;
+        }
+
+        const db = DB.get();
+        if (!db.timetable) db.timetable = [];
+        
+        // Check if there is already a class at this period for this batch/day
+        const conflict = db.timetable.find(t => t.batch === batch && t.day === day && t.period === period);
+        if (conflict) {
+          App.showToast(`Conflict detected: Class already exists for Period P${period}`, 'error');
+          return;
+        }
+
+        db.timetable.push({
+          id: genId('TT'),
+          batch,
+          day,
+          period,
+          time,
+          subjectId,
+          facultyId,
+          room
+        });
+        DB.set(db);
+        App.closeModal();
+        App.showToast('Class added to timetable', 'success');
+        this.timetableView();
+      });
     }, 0);
   },
 
