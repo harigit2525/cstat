@@ -78,31 +78,48 @@ const StudentViews = {
 
   attendance() {
     const u = App.currentUser;
-    const stats = DB.getStudentAttendanceStats(u.id);
-    const totalClasses = stats.reduce((s, x) => s + x.total, 0);
-    const totalAttended = stats.reduce((s, x) => s + x.attended, 0);
-    const overallPct = totalClasses > 0 ? Math.round((totalAttended / totalClasses) * 100) : 0;
 
-    document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn">
-      <div class="page-header"><h2>My Attendance</h2></div>
-      <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
-        <div class="stat-card"><div class="stat-icon primary">📊</div><div class="stat-value">${overallPct}%</div><div class="stat-label">Overall</div></div>
-        <div class="stat-card"><div class="stat-icon success">✓</div><div class="stat-value">${totalAttended}</div><div class="stat-label">Classes Attended</div></div>
-        <div class="stat-card"><div class="stat-icon secondary">📅</div><div class="stat-value">${totalClasses}</div><div class="stat-label">Total Classes</div></div>
-      </div>
+    const renderAttendance = () => {
+      const stats = DB.getStudentAttendanceStats(u.id);
+      const totalClasses = stats.reduce((s, x) => s + x.total, 0);
+      const totalAttended = stats.reduce((s, x) => s + x.attended, 0);
+      const overallPct = totalClasses > 0 ? Math.round((totalAttended / totalClasses) * 100) : 0;
 
-      <div class="glass-card mb-5"><div class="card-header"><h4>Subject-wise Breakdown</h4></div><div class="card-body">
-        ${stats.map(s => `<div style="margin-bottom:20px"><div class="flex-between mb-2"><span style="font-weight:600">${s.subjectName}</span><span>${s.percentage}% (${s.attended}/${s.total})</span></div><div class="attendance-bar"><div class="fill ${s.percentage >= 75 ? 'green' : s.percentage >= 60 ? 'amber' : 'rose'}" style="width:${s.percentage}%"></div></div></div>`).join('') || '<p class="text-muted text-center">No data yet</p>'}
-      </div></div>
+      document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn">
+        <div class="page-header"><h2>My Attendance</h2><span class="text-muted" id="att-refresh-indicator" style="font-size:0.8rem">🔴 Live</span></div>
+        <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+          <div class="stat-card"><div class="stat-icon primary">📊</div><div class="stat-value">${overallPct}%</div><div class="stat-label">Overall</div></div>
+          <div class="stat-card"><div class="stat-icon success">✓</div><div class="stat-value">${totalAttended}</div><div class="stat-label">Classes Attended</div></div>
+          <div class="stat-card"><div class="stat-icon secondary">📅</div><div class="stat-value">${totalClasses}</div><div class="stat-label">Total Classes</div></div>
+        </div>
 
-      <div class="glass-card"><div class="card-header"><h4>Recent Records</h4></div><div class="card-body">
-        ${(() => { const records = DB.getStudentAttendance({ studentId: u.id }).slice(-20).reverse();
-          return records.length ? `<table class="data-table"><thead><tr><th>Date</th><th>Subject</th><th>Period</th><th>Status</th></tr></thead><tbody>
-            ${records.map(r => { const sub = DB.getSubjectById(r.subjectId); return `<tr><td>${formatDate(r.date)}</td><td>${sub ? sub.name : '-'}</td><td>P${r.period}</td><td><span class="status-badge ${r.status}">${r.status}</span></td></tr>`; }).join('')}
-          </tbody></table>` : '<p class="text-muted text-center">No records</p>';
-        })()}
-      </div></div>
-    </div>`;
+        <div class="glass-card mb-5"><div class="card-header"><h4>Subject-wise Breakdown</h4></div><div class="card-body">
+          ${stats.map(s => `<div style="margin-bottom:20px"><div class="flex-between mb-2"><span style="font-weight:600">${s.subjectName}</span><span>${s.percentage}% (${s.attended}/${s.total})</span></div><div class="attendance-bar"><div class="fill ${s.percentage >= 75 ? 'green' : s.percentage >= 60 ? 'amber' : 'rose'}" style="width:${s.percentage}%"></div></div></div>`).join('') || '<p class="text-muted text-center">No data yet</p>'}
+        </div></div>
+
+        <div class="glass-card"><div class="card-header"><h4>Recent Records</h4></div><div class="card-body">
+          ${(() => { const records = DB.getStudentAttendance({ studentId: u.id }).slice(-20).reverse();
+            return records.length ? `<table class="data-table"><thead><tr><th>Date</th><th>Subject</th><th>Period</th><th>Status</th></tr></thead><tbody>
+                ${records.map(r => { const sub = DB.getSubjectById(r.subjectId); return `<tr><td>${formatDate(r.date)}</td><td>${sub ? sub.name : '-'}</td><td>P${r.period}</td><td><span class="status-badge ${r.status}">${r.status}</span></td></tr>`; }).join('')}
+              </tbody></table>` : '<p class="text-muted text-center">No records</p>';
+          })()}
+        </div></div>
+      </div>`;
+    };
+
+    renderAttendance();
+
+    // Live sync: pull latest data + re-render every 5s
+    const liveTimer = setInterval(async () => {
+      if (!document.getElementById('att-refresh-indicator')) {
+        clearInterval(liveTimer); // Stop if navigated away
+        return;
+      }
+      await DB.syncState();
+      if (document.getElementById('att-refresh-indicator')) {
+        renderAttendance();
+      }
+    }, 5000);
   },
 
   timetable() {

@@ -98,8 +98,8 @@ const FacultyViews = {
       const sub = DB.getSubjectById(selectedSubject);
       if (!sub) return '<p class="text-muted text-center mt-4">Select a subject to view students</p>';
       
-      const students = DB.getUsers('student').filter(s => !sub.batch || s.batch === sub.batch || s.batch === 'Batch-1');
-      if (!students.length) return '<p class="text-muted text-center mt-4">No students found in this batch</p>';
+      const students = DB.getUsers('student').filter(s => s.batch === sub.batch);
+      if (!students.length) return `<p class="text-muted text-center mt-4">No students found in batch <strong>${sub.batch}</strong>. Make sure students have the correct batch set in their profiles.</p>`;
       
       // Get today's attendance to see who is already marked
       const todayRecords = DB.getStudentAttendance({ subjectId: selectedSubject, date: today(), period: selectedPeriod });
@@ -341,7 +341,10 @@ const FacultyViews = {
             <div class="form-group"><label class="form-label">Period</label><input type="number" class="form-input" id="add-tt-period" min="1" value="1"/></div>
           </div>
           <div class="form-row">
-            <div class="form-group"><label class="form-label">Time Slot</label><input class="form-input" id="add-tt-time" required placeholder="e.g. 09:00 - 10:00"/></div>
+            <div class="form-group"><label class="form-label">Start Time</label><input type="time" class="form-input" id="add-tt-start" value="09:00" required/></div>
+            <div class="form-group"><label class="form-label">End Time</label><input type="time" class="form-input" id="add-tt-end" value="10:00" required/></div>
+          </div>
+          <div class="form-row">
             <div class="form-group"><label class="form-label">Room</label><input class="form-input" id="add-tt-room" required placeholder="e.g. Room 402"/></div>
           </div>
           <div class="form-row">
@@ -363,7 +366,7 @@ const FacultyViews = {
         document.getElementById('add-tt-save').addEventListener('click', () => {
           const day = document.getElementById('add-tt-day').value;
           const period = parseInt(document.getElementById('add-tt-period').value);
-          const time = document.getElementById('add-tt-time').value.trim();
+          const time = `${document.getElementById('add-tt-start').value} - ${document.getElementById('add-tt-end').value}`;
           const room = document.getElementById('add-tt-room').value.trim();
           const subjectId = document.getElementById('add-tt-sub').value;
           const batch = document.getElementById('add-tt-batch').value.trim();
@@ -400,7 +403,10 @@ const FacultyViews = {
         <div class="form-group"><label class="form-label">Period</label><input type="number" class="form-input" id="edit-tt-period" min="1" value="${entry.period}"/></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Time Slot</label><input class="form-input" id="edit-tt-time" value="${entry.time}" required/></div>
+        <div class="form-group"><label class="form-label">Start Time</label><input type="time" class="form-input" id="edit-tt-start" value="${entry.time.split(' - ')[0] || '09:00'}" required/></div>
+        <div class="form-group"><label class="form-label">End Time</label><input type="time" class="form-input" id="edit-tt-end" value="${entry.time.split(' - ')[1] || '10:00'}" required/></div>
+      </div>
+      <div class="form-row">
         <div class="form-group"><label class="form-label">Room</label><input class="form-input" id="edit-tt-room" value="${entry.room}" required/></div>
       </div>
       <div class="form-row">
@@ -412,7 +418,7 @@ const FacultyViews = {
     document.getElementById('edit-tt-save').addEventListener('click', () => {
       const day = document.getElementById('edit-tt-day').value;
       const period = parseInt(document.getElementById('edit-tt-period').value);
-      const time = document.getElementById('edit-tt-time').value.trim();
+      const time = `${document.getElementById('edit-tt-start').value} - ${document.getElementById('edit-tt-end').value}`;
       const room = document.getElementById('edit-tt-room').value.trim();
       const subjectId = document.getElementById('edit-tt-sub').value;
       const batch = document.getElementById('edit-tt-batch').value.trim();
