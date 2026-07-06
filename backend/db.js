@@ -1,32 +1,32 @@
 // ============================================================
-// CStat — db.js  |  MySQL Connection Pool
+// CStat — db.js  |  PostgreSQL Connection Pool
 // ============================================================
-const mysql = require('mysql2/promise');
+const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
 
-const pool = mysql.createPool({
-  host: 'localhost',
-  user: 'root',
-  password: 'Hari@sql.2025',
-  database: 'cstat_db',
-  waitForConnections: true,
-  connectionLimit: 10,
-  charset: 'utf8mb4'
+const pgPool = new Pool({
+  connectionString: process.env.DATABASE_URL
 });
+
+const pool = {
+  query: async (sql, params = []) => {
+    // Convert MySQL '?' to PostgreSQL '$1, $2...'
+    let i = 1;
+    const pgSql = sql.replace(/\?/g, () => `$${i++}`)
+                     .replace(/CURDATE\(\)/gi, 'CURRENT_DATE')
+                     .replace(/NOW\(\)/gi, 'CURRENT_TIMESTAMP');
+    const result = await pgPool.query(pgSql, params);
+    // Mimic mysql2 return signature: [rows, fields]
+    return [result.rows, result.fields];
+  }
+};
 
 // Run the setup.sql schema on first launch
 async function initDB() {
-  const conn = await mysql.createConnection({
-    host: 'localhost',
-    user: 'root',
-    password: 'Hari@sql.2025',
-    multipleStatements: true
-  });
   const sql = fs.readFileSync(path.join(__dirname, 'setup.sql'), 'utf8');
-  await conn.query(sql);
-  await conn.end();
-  console.log('[CStat DB] Database and tables created successfully.');
+  await pgPool.query(sql);
+  console.log('[CStat DB] Database connected and schema applied successfully.');
 }
 
 module.exports = { pool, initDB };

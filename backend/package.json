@@ -9,9 +9,10 @@
     "setup-db": "node -e \"require('./db').initDB()\""
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
     "express": "^4.18.2",
     "mysql2": "^3.6.0",
-    "cors": "^2.8.5",
-    "bcryptjs": "^2.4.3"
+    "pg": "^8.22.0"
   }
 }
