@@ -80,9 +80,13 @@ const QRScanner = {
     document.getElementById('stop-scanner-btn').addEventListener('click', () => this.stop());
 
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } }
-      });
+      let constraints = { video: { facingMode: 'environment' } };
+      try {
+        this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (e) {
+        console.warn('Fallen back to default camera video constraints', e);
+        this.stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
       const video = document.getElementById('cstat-scanner-video');
       video.srcObject = this.stream;
       this.active = true;
