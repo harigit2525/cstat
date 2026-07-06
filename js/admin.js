@@ -142,12 +142,11 @@ const AdminViews = {
   },
 
   scanFacultyQR() {
-    const todayAtt = DB.getFacultyAttendance({ date: today() });
     const allFaculty = DB.getUsers('faculty');
     
     const renderFacultyList = () => {
+      const todayAtt = DB.getFacultyAttendance({ date: today() });
       if (!allFaculty.length) return '<p class="text-muted text-center mt-4">No faculty found.</p>';
-      
       return `
         <div class="table-wrap mt-4">
           <table class="data-table">
@@ -155,89 +154,121 @@ const AdminViews = {
               <tr>
                 <th>Faculty</th>
                 <th>Department</th>
-                <th>Entry/Exit Code</th>
-                <th>Action / Status</th>
+                <th>Code</th>
+                <th>Entry</th>
+                <th>Exit</th>
+                <th>Status / Duration</th>
               </tr>
             </thead>
             <tbody>
               ${allFaculty.map(f => {
                 const att = todayAtt.find(a => a.facultyId === f.id);
-                if (att) {
-                  return `<tr>
-                    <td><strong>${f.name}</strong></td>
-                    <td>${f.department}</td>
-                    <td>-</td>
-                    <td><span class="status-badge ${att.status}">${att.status}</span></td>
-                  </tr>`;
+                const hasEntry = att && att.entryTime;
+                const hasExit = att && att.exitTime;
+                let statusCell = '';
+                if (hasEntry && hasExit) {
+                  const en = new Date(att.entryTime);
+                  const ex = new Date(att.exitTime);
+                  const diffMin = Math.round((ex - en) / 60000);
+                  const h = Math.floor(diffMin / 60), m = diffMin % 60;
+                  statusCell = `<span class="status-badge present">Present</span><br><small class="text-muted">${en.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})} - ${ex.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})} (${h}h ${m}m)</small>`;
+                } else if (hasEntry) {
+                  statusCell = `<span class="status-badge pending">Entry Done</span><br><small class="text-muted">In at ${new Date(att.entryTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</small>`;
+                } else if (att && att.status === 'absent') {
+                  statusCell = `<span class="status-badge absent">Absent</span>`;
                 } else {
-                  return `<tr>
-                    <td><strong>${f.name}</strong></td>
-                    <td>${f.department}</td>
-                    <td>
-                      <input type="text" class="form-input code-input" id="fac-code-${f.id}" placeholder="6-digit code" style="width:120px; font-family:monospace; letter-spacing:1px;" maxlength="6"/>
-                    </td>
-                    <td>
-                      <button class="btn btn-primary btn-sm mark-fac-btn" data-faculty="${f.id}" data-action="present">Present (Entry)</button>
-                      <button class="btn btn-warning btn-sm mark-fac-btn" data-faculty="${f.id}" data-action="leave">Leave</button>
-                    </td>
-                  </tr>`;
+                  statusCell = `<span class="status-badge pending">Not Marked</span>`;
                 }
+                return `<tr>
+                  <td><strong>${f.name}</strong></td>
+                  <td>${f.department}</td>
+                  <td>
+                    <input type="text" class="form-input code-input" id="fac-code-${f.id}"
+                      placeholder="${hasEntry && !hasExit ? 'Exit code' : 'Entry code'}"
+                      style="width:110px;font-family:monospace;letter-spacing:1px;" maxlength="6"
+                      ${hasExit ? 'disabled' : ''}/>
+                  </td>
+                  <td>
+                    ${!hasEntry
+                      ? `<button class="btn btn-primary btn-sm fac-entry-btn" data-faculty="${f.id}">Entry</button>`
+                      : `<span class="text-muted" style="font-size:0.8rem">✓ ${new Date(att.entryTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>`
+                    }
+                  </td>
+                  <td>
+                    ${hasEntry && !hasExit
+                      ? `<button class="btn btn-warning btn-sm fac-exit-btn" data-faculty="${f.id}">Exit</button>`
+                      : hasExit
+                        ? `<span class="text-muted" style="font-size:0.8rem">✓ ${new Date(att.exitTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>`
+                        : `<span class="text-muted">—</span>`
+                    }
+                  </td>
+                  <td>${statusCell}</td>
+                </tr>`;
               }).join('')}
             </tbody>
           </table>
         </div>
-        <div class="mt-4 text-right">
-          <button class="btn btn-danger" id="mark-rem-fac-absent">Submit Remaining as Absent</button>
+        <div class="mt-4" style="display:flex;gap:12px;justify-content:flex-end">
+          <button class="btn btn-danger" id="mark-rem-fac-absent">Mark Remaining as Absent</button>
         </div>
       `;
     };
 
+    const todayCountFn = () => DB.getFacultyAttendance({ date: today() }).length;
     document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn">
       <div class="page-header"><h2>Mark Faculty Attendance</h2><span class="text-muted">${formatDate(today())}</span></div>
-      <div class="dashboard-grid">
-        <div class="glass-card" style="grid-column: 1 / -1;"><div class="card-header"><h4>Today's Status (${todayAtt.length}/${allFaculty.length})</h4></div><div class="card-body">
-          <div id="faculty-att-list">${renderFacultyList()}</div>
-        </div></div>
-      </div>
+      <div class="glass-card"><div class="card-body">
+        <div id="faculty-att-list">${renderFacultyList()}</div>
+      </div></div>
     </div>`;
 
     const attachEvents = () => {
-      document.querySelectorAll('.mark-fac-btn').forEach(btn => {
+      document.querySelectorAll('.fac-entry-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           const facultyId = e.target.dataset.faculty;
-          const action = e.target.dataset.action;
           const codeInput = document.getElementById(`fac-code-${facultyId}`).value.trim();
-          
-          if (!codeInput) {
-            App.showToast('Please enter the code provided by the faculty.', 'error');
-            return;
-          }
-          
-          const expectedEntryCode = genUniqueCode(facultyId, today(), 'entry');
-          const expectedExitCode = genUniqueCode(facultyId, today(), 'exit');
-          
-          if (codeInput !== expectedEntryCode && codeInput !== expectedExitCode) {
-            App.showToast('Invalid code! Please check again.', 'error');
-            return;
-          }
-          
-          AdminViews._markFac(facultyId, action);
+          if (!codeInput) { App.showToast('Enter the Entry code provided by faculty.', 'error'); return; }
+          const expected = genUniqueCode(facultyId, today(), 'entry');
+          if (codeInput !== expected) { App.showToast('Invalid Entry code!', 'error'); return; }
+          const entryTs = new Date().toISOString();
+          DB.addFacultyAttendance({ id: genId('FA'), facultyId, date: today(), status: 'present', markedBy: App.currentUser.id, timestamp: now(), entryTime: entryTs, exitTime: null });
+          App.showToast('Entry recorded! Input reset for Exit code.', 'success');
+          document.getElementById('faculty-att-list').innerHTML = renderFacultyList();
+          attachEvents();
+        });
+      });
+
+      document.querySelectorAll('.fac-exit-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const facultyId = e.target.dataset.faculty;
+          const codeInput = document.getElementById(`fac-code-${facultyId}`).value.trim();
+          if (!codeInput) { App.showToast('Enter the Exit code provided by faculty.', 'error'); return; }
+          const expected = genUniqueCode(facultyId, today(), 'exit');
+          if (codeInput !== expected) { App.showToast('Invalid Exit code!', 'error'); return; }
+          const exitTs = new Date().toISOString();
+          const existing = DB.getFacultyAttendance({ date: today() }).find(a => a.facultyId === facultyId);
+          DB.addFacultyAttendance({ id: existing ? existing.id : genId('FA'), facultyId, date: today(), status: 'present', markedBy: App.currentUser.id, timestamp: now(), entryTime: existing ? existing.entryTime : null, exitTime: exitTs });
+          App.showToast('Exit recorded! Attendance complete.', 'success');
+          document.getElementById('faculty-att-list').innerHTML = renderFacultyList();
+          attachEvents();
         });
       });
 
       const markRemBtn = document.getElementById('mark-rem-fac-absent');
       if (markRemBtn) {
         markRemBtn.addEventListener('click', () => {
+          const todayAtt = DB.getFacultyAttendance({ date: today() });
           let count = 0;
           allFaculty.forEach(f => {
             const att = todayAtt.find(a => a.facultyId === f.id);
             if (!att) {
-              DB.addFacultyAttendance({ id: genId('FA'), facultyId: f.id, date: today(), status: 'absent', markedBy: App.currentUser.id, timestamp: now() });
+              DB.addFacultyAttendance({ id: genId('FA'), facultyId: f.id, date: today(), status: 'absent', markedBy: App.currentUser.id, timestamp: now(), entryTime: null, exitTime: null });
               count++;
             }
           });
           App.showToast(`Marked ${count} remaining faculty as absent.`, 'info');
-          AdminViews.scanFacultyQR(); // Re-render
+          document.getElementById('faculty-att-list').innerHTML = renderFacultyList();
+          attachEvents();
         });
       }
     };
@@ -258,8 +289,17 @@ const AdminViews = {
         <div class="stat-card"><div class="stat-icon success">✓</div><div class="stat-value">${p}</div><div class="stat-label">Present</div></div>
         <div class="stat-card"><div class="stat-icon danger">✕</div><div class="stat-value">${a}</div><div class="stat-label">Absent</div></div>
         <div class="stat-card"><div class="stat-icon warning">🏖️</div><div class="stat-value">${l}</div><div class="stat-label">Leave</div></div>
-      </div><div class="table-wrap glass-card"><table class="data-table"><thead><tr><th>Faculty</th><th>Department</th><th>Date</th><th>Status</th><th>Marked At</th></tr></thead><tbody>
-        ${records.map(r => { const f = DB.getUserById(r.facultyId); return `<tr><td>${f ? f.name : r.facultyId}</td><td>${f ? f.department : '-'}</td><td>${formatDate(r.date)}</td><td><span class="status-badge ${r.status}">${r.status}</span></td><td>${formatDateTime(r.timestamp)}</td></tr>`; }).join('') || '<tr><td colspan="5" class="text-center text-muted">No records</td></tr>'}
+      </div><div class="table-wrap glass-card"><table class="data-table"><thead><tr><th>Faculty</th><th>Department</th><th>Date</th><th>Status</th><th>Entry</th><th>Exit</th><th>Duration</th></tr></thead><tbody>
+        ${records.map(r => { const f = DB.getUserById(r.facultyId);
+          const entryStr = r.entryTime ? new Date(r.entryTime).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '-';
+          const exitStr = r.exitTime ? new Date(r.exitTime).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '-';
+          let durStr = '-';
+          if (r.entryTime && r.exitTime) {
+            const diffMin = Math.round((new Date(r.exitTime) - new Date(r.entryTime)) / 60000);
+            durStr = `${Math.floor(diffMin/60)}h ${diffMin%60}m`;
+          }
+          return `<tr><td>${f ? f.name : r.facultyId}</td><td>${f ? f.department : '-'}</td><td>${formatDate(r.date)}</td><td><span class="status-badge ${r.status}">${r.status}</span></td><td>${entryStr}</td><td>${exitStr}</td><td>${durStr}</td></tr>`;
+        }).join('') || '<tr><td colspan="7" class="text-center text-muted">No records</td></tr>'}
       </tbody></table></div>`;
     };
     document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn"><div class="page-header"><h2>Faculty Attendance</h2></div>

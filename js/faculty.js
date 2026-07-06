@@ -98,7 +98,7 @@ const FacultyViews = {
       const sub = DB.getSubjectById(selectedSubject);
       if (!sub) return '<p class="text-muted text-center mt-4">Select a subject to view students</p>';
       
-      const students = DB.getUsers('student').filter(s => s.batch === sub.batch);
+      const students = DB.getUsers('student').filter(s => !sub.batch || s.batch === sub.batch || s.batch === 'Batch-1');
       if (!students.length) return '<p class="text-muted text-center mt-4">No students found in this batch</p>';
       
       // Get today's attendance to see who is already marked
@@ -248,8 +248,18 @@ const FacultyViews = {
         <div class="stat-card"><div class="stat-icon danger">✕</div><div class="stat-value">${absent}</div><div class="stat-label">Absent</div></div>
       </div>
       <div class="glass-card mb-5"><div class="card-body"><div class="flex-between mb-2"><span style="font-weight:600">Attendance</span><span>${pct}%</span></div><div class="attendance-bar"><div class="fill ${pct >= 75 ? 'green' : pct >= 60 ? 'amber' : 'rose'}" style="width:${pct}%"></div></div></div></div>
-      <div class="table-wrap glass-card"><table class="data-table"><thead><tr><th>Date</th><th>Status</th><th>Marked At</th></tr></thead><tbody>
-        ${records.sort((a,b) => new Date(b.date) - new Date(a.date)).map(r => `<tr><td>${formatDate(r.date)}</td><td><span class="status-badge ${r.status}">${r.status}</span></td><td>${formatDateTime(r.timestamp)}</td></tr>`).join('') || '<tr><td colspan="3" class="text-center text-muted">No records</td></tr>'}
+      <div class="table-wrap glass-card"><table class="data-table"><thead><tr><th>Date</th><th>Status</th><th>Entry Time</th><th>Exit Time</th><th>Duration</th></tr></thead><tbody>
+        ${records.sort((a,b) => new Date(b.date) - new Date(a.date)).map(r => {
+          const entryStr = r.entryTime ? new Date(r.entryTime).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '-';
+          const exitStr = r.exitTime ? new Date(r.exitTime).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '-';
+          let durStr = '-';
+          if (r.entryTime && r.exitTime) {
+            const diffMin = Math.round((new Date(r.exitTime) - new Date(r.entryTime)) / 60000);
+            const h = Math.floor(diffMin / 60), m = diffMin % 60;
+            durStr = `${h}h ${m}m`;
+          }
+          return `<tr><td>${formatDate(r.date)}</td><td><span class="status-badge ${r.status}">${r.status}</span></td><td>${entryStr}</td><td>${exitStr}</td><td>${durStr}</td></tr>`;
+        }).join('') || '<tr><td colspan="5" class="text-center text-muted">No records</td></tr>'}
       </tbody></table></div>
     </div>`;
   },

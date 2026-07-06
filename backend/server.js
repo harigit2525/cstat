@@ -86,7 +86,7 @@ app.get('/api/db-state', async (req, res) => {
       subjects: subjects.map(s => ({ id: s.id, name: s.name, code: s.code, facultyId: s.faculty_id, department: s.department, batch: s.batch })),
       timetable: timetable.map(t => ({ id: t.id, batch: t.batch, day: t.day, period: t.period, time: t.time, subjectId: t.subject_id, facultyId: t.faculty_id, room: t.room })),
       studentAttendance: studentAttendance.map(sa => ({ id: sa.id, studentId: sa.student_id, subjectId: sa.subject_id, date: sa.date, period: sa.period, status: sa.status, markedBy: sa.marked_by, timestamp: sa.timestamp })),
-      facultyAttendance: facultyAttendance.map(fa => ({ id: fa.id, facultyId: fa.faculty_id, date: fa.date, status: fa.status, markedBy: fa.marked_by, timestamp: fa.timestamp })),
+      facultyAttendance: facultyAttendance.map(fa => ({ id: fa.id, facultyId: fa.faculty_id, date: fa.date, status: fa.status, markedBy: fa.marked_by, timestamp: fa.timestamp, entryTime: fa.entry_time, exitTime: fa.exit_time })),
       assignments,
       marks: marks.map(m => ({ id: m.id, studentId: m.student_id, subjectId: m.subject_id, examType: m.exam_type, marksObtained: m.marks_obtained, maxMarks: m.max_marks, date: m.date })),
       leaveRequests: leaveRequests.map(lr => ({ id: lr.id, userId: lr.user_id, role: lr.role, type: lr.type, reason: lr.reason, from: lr.from_date, to: lr.to_date, status: lr.status, reviewedBy: lr.reviewed_by, reviewedOn: lr.reviewed_on, createdAt: lr.created_at })),
@@ -388,17 +388,23 @@ app.get('/api/faculty-attendance', async (req, res) => {
     if (req.query.facultyId) { sql += ' AND faculty_id=?'; params.push(req.query.facultyId); }
     if (req.query.date) { sql += ' AND date=?'; params.push(req.query.date); }
     const [rows] = await pool.query(sql, params);
-    res.json(rows.map(r => ({ id: r.id, facultyId: r.faculty_id, date: r.date, status: r.status, markedBy: r.marked_by, timestamp: r.timestamp })));
+    res.json(rows.map(r => ({ id: r.id, facultyId: r.faculty_id, date: r.date, status: r.status, markedBy: r.marked_by, timestamp: r.timestamp, entryTime: r.entry_time, exitTime: r.exit_time })));
   } catch(e) { res.status(500).json({ error: 'Server error.' }); }
 });
 
 app.post('/api/faculty-attendance', async (req, res) => {
   try {
-    const { facultyId, date, status, markedBy } = req.body;
-    await pool.query('DELETE FROM faculty_attendance WHERE faculty_id=? AND date=?', [facultyId, date]);
-    const id = genId('FA');
-    await pool.query('INSERT INTO faculty_attendance (id, faculty_id, date, status, marked_by, timestamp) VALUES (?,?,?,?,?,NOW())',
-      [id, facultyId, date, status, markedBy]);
+    const { facultyId, date, status, markedBy, entryTime, exitTime } = req.body;
+    const [existing] = await pool.query('SELECT * FROM faculty_attendance WHERE faculty_id=? AND date=?', [facultyId, date]);
+    if (existing.length > 0) {
+      const e = existing[0];
+      await pool.query('UPDATE faculty_attendance SET status=?, marked_by=?, timestamp=NOW(), entry_time=?, exit_time=? WHERE id=?',
+        [status, markedBy, entryTime || e.entry_time, exitTime || e.exit_time, e.id]);
+    } else {
+      const id = genId('FA');
+      await pool.query('INSERT INTO faculty_attendance (id, faculty_id, date, status, marked_by, timestamp, entry_time, exit_time) VALUES (?,?,?,?,?,NOW(),?,?)',
+        [id, facultyId, date, status, markedBy, entryTime || null, exitTime || null]);
+    }
     res.json({ success: true });
   } catch(e) { console.error(e); res.status(500).json({ error: 'Server error.' }); }
 });
