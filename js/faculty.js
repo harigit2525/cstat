@@ -99,7 +99,17 @@ const FacultyViews = {
       if (!sub) return '<p class="text-muted text-center mt-4">Select a subject to view students</p>';
       
       const students = DB.getUsers('student').filter(s => s.batch === sub.batch);
-      if (!students.length) return `<p class="text-muted text-center mt-4">No students found in batch <strong>${sub.batch}</strong>. Make sure students have the correct batch set in their profiles.</p>`;
+      if (!students.length) return `
+        <div class="glass-card" style="border-left:3px solid var(--warning);margin-top:1rem">
+          <div class="card-body">
+            <strong style="color:var(--warning)">⚠ No students found for batch: <code>${sub.batch}</code></strong>
+            <p class="text-muted mt-2" style="font-size:0.9rem">
+              The subject <strong>${sub.name}</strong> is set for batch <code>${sub.batch}</code>.<br>
+              Make sure student accounts have their <strong>Batch</strong> field set to <code>${sub.batch}</code>.<br>
+              Ask your Admin to update the students' batch in <em>Manage Users</em>.
+            </p>
+          </div>
+        </div>`;
       
       // Get today's attendance to see who is already marked
       const todayRecords = DB.getStudentAttendance({ subjectId: selectedSubject, date: today(), period: selectedPeriod });
@@ -152,7 +162,11 @@ const FacultyViews = {
       <div class="dashboard-grid">
         <div class="glass-card"><div class="card-header"><h4>Class Setup</h4></div><div class="card-body">
           <div class="form-group"><label class="form-label">Subject</label>
-            <select class="form-select" id="scan-subject">${subjects.map(s => `<option value="${s.id}">${s.name} (${s.code})</option>`).join('')}</select></div>
+            <select class="form-select" id="scan-subject">
+              ${subjects.map(s => `<option value="${s.id}">${s.name} (${s.code}) — Batch: ${s.batch || 'Any'}</option>`).join('')}
+            </select>
+          </div>
+          <div id="batch-info-badge" style="margin-bottom:12px"></div>
           <div class="form-group"><label class="form-label">Period</label>
             <div class="period-selector" id="period-selector">${[1,2,3,4,5,6,7,8].map(p => `<button class="period-pill ${p === 1 ? 'active' : ''}" data-period="${p}">${p}</button>`).join('')}</div></div>
         </div></div>
@@ -211,7 +225,20 @@ const FacultyViews = {
       }
     };
 
+    const updateBatchBadge = () => {
+      const sub = DB.getSubjectById(selectedSubject);
+      const badge = document.getElementById('batch-info-badge');
+      if (!badge) return;
+      if (sub) {
+        const studentCount = DB.getUsers('student').filter(s => s.batch === sub.batch).length;
+        badge.innerHTML = `<span class="status-badge" style="background:rgba(99,102,241,0.15);color:var(--primary);font-size:0.8rem">
+          Batch: <strong>${sub.batch || 'Not Set'}</strong> &nbsp;|&nbsp; ${studentCount} student(s)
+        </span>`;
+      }
+    };
+
     setTimeout(() => {
+      updateBatchBadge();
       document.querySelectorAll('#period-selector .period-pill').forEach(btn => btn.addEventListener('click', () => {
         document.querySelectorAll('#period-selector .period-pill').forEach(b => b.classList.remove('active'));
         btn.classList.add('active'); selectedPeriod = parseInt(btn.dataset.period);
@@ -220,8 +247,9 @@ const FacultyViews = {
       }));
       const scanSubSelect = document.getElementById('scan-subject');
       if (scanSubSelect) {
-        scanSubSelect.addEventListener('change', function() { 
-          selectedSubject = this.value; 
+        scanSubSelect.addEventListener('change', function() {
+          selectedSubject = this.value;
+          updateBatchBadge();
           document.getElementById('student-att-list').innerHTML = renderStudentList();
           attachListEvents();
         });

@@ -65,6 +65,9 @@ const AdminViews = {
 
     document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn">
       <div class="page-header"><h2>Manage Users</h2><div class="page-header-actions"><button class="btn btn-primary" id="add-user-btn"><span class="icon-add"></span> Add User</button></div></div>
+      <div class="glass-card mb-3" style="border-left:3px solid var(--primary)"><div class="card-body" style="font-size:0.85rem;padding:10px 16px">
+        <strong>ℹ Batch Matching:</strong> Student <strong>Batch</strong> must exactly match the Subject's <strong>Batch</strong> for attendance marking to work. Use the ✏️ edit button to update each student's batch.
+      </div></div>
       <div class="tab-nav"><button class="tab-btn active" data-tab="stu-tab">Students</button><button class="tab-btn" data-tab="fac-tab">Faculty</button></div>
       <div id="stu-tab" class="tab-content active">${renderTab('student')}</div>
       <div id="fac-tab" class="tab-content">${renderTab('faculty')}</div>

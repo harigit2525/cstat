@@ -375,8 +375,23 @@ const DB = {
     const db = this.get();
     const user = this.getUserById(studentId);
     if (!user) return [];
-    const subjects = this.getSubjects({ batch: user.batch });
-    return subjects.map(sub => {
+
+    // Get subjects from student's batch
+    const batchSubjects = this.getSubjects({ batch: user.batch });
+
+    // Also find subjects the student has actual attendance records for (catches batch mismatches)
+    const attendedSubjectIds = [...new Set(
+      (db.studentAttendance || [])
+        .filter(a => a.studentId === studentId)
+        .map(a => a.subjectId)
+    )];
+    const extraSubjects = attendedSubjectIds
+      .map(id => this.getSubjectById(id))
+      .filter(s => s && !batchSubjects.find(b => b.id === s.id));
+
+    const allSubjects = [...batchSubjects, ...extraSubjects];
+
+    return allSubjects.map(sub => {
       const records = (db.studentAttendance || []).filter(a => a.studentId === studentId && a.subjectId === sub.id);
       const total = records.length;
       const present = records.filter(a => a.status === 'present').length;
@@ -390,7 +405,6 @@ const DB = {
         subjectName: sub.name,
         total, present, late, absent, attended,
         percentage,
-        // legacy alias
         pct: percentage
       };
     });
