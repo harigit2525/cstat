@@ -29,6 +29,11 @@ const pool = {
 async function initDB() {
   const sql = fs.readFileSync(path.join(__dirname, 'setup.sql'), 'utf8');
   await pgPool.query(sql);
+  
+  // Safe migrations for new columns
+  try { await pgPool.query('ALTER TABLE users ADD COLUMN year VARCHAR(20) DEFAULT NULL'); } catch(e) {}
+  try { await pgPool.query('ALTER TABLE users ADD COLUMN position VARCHAR(100) DEFAULT NULL'); } catch(e) {}
+
   console.log('[CStat DB] Database connected and schema applied successfully.');
 }
 

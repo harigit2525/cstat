@@ -56,8 +56,9 @@ const AdminViews = {
     const renderTab = (role) => {
       const users = DB.getUsers(role);
       const isStu = role === 'student';
-      return `<div class="table-wrap glass-card"><table class="data-table"><thead><tr><th>ID</th><th>Name</th><th>Department</th>${isStu ? '<th>Batch</th><th>Roll No</th>' : ''}<th>Email</th><th>Actions</th></tr></thead><tbody>
-        ${users.map(u => `<tr><td><code>${u.id}</code></td><td>${u.name}</td><td>${u.department}</td>${isStu ? `<td>${u.batch || '-'}</td><td>${u.rollNo || '-'}</td>` : ''}<td>${u.email}</td>
+      const isFac = role === 'faculty';
+      return `<div class="table-wrap glass-card"><table class="data-table"><thead><tr><th>ID</th><th>Name</th><th>Department</th>${isStu ? '<th>Year</th><th>Batch</th><th>Roll No</th>' : ''}${isFac ? '<th>Position</th>' : ''}<th>Email</th><th>Actions</th></tr></thead><tbody>
+        ${users.map(u => `<tr><td><code>${u.id}</code></td><td>${u.name}</td><td>${u.department}</td>${isStu ? `<td>${u.year || '-'}</td><td>${u.batch || '-'}</td><td>${u.rollNo || '-'}</td>` : ''}${isFac ? `<td>${u.position || '-'}</td>` : ''}<td>${u.email}</td>
         <td class="list-item-actions"><button class="btn btn-ghost btn-sm" onclick="AdminViews._viewQR('${u.id}')">QR</button><button class="btn btn-ghost btn-sm" onclick="AdminViews._editUser('${u.id}')">✏️</button><button class="btn btn-danger btn-sm" onclick="AdminViews._deleteUser('${u.id}')">🗑️</button></td></tr>`).join('')}
       </tbody></table></div>`;
     };

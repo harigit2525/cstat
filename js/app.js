@@ -576,6 +576,15 @@ const App = {
         document.getElementById('reg-member-fields').style.display = role !== 'admin' ? 'block' : 'none';
         document.getElementById('reg-inst-name').required = role === 'admin';
         document.getElementById('reg-inst-select').required = role !== 'admin';
+        
+        // Handle new dynamic fields
+        document.getElementById('reg-dept-group').style.display = (role === 'student' || role === 'faculty') ? 'block' : 'none';
+        document.getElementById('reg-year-group').style.display = role === 'student' ? 'block' : 'none';
+        document.getElementById('reg-pos-group').style.display = role === 'faculty' ? 'block' : 'none';
+        
+        const label = document.getElementById('reg-user-id-label');
+        if (role === 'admin') label.textContent = 'Custom Admin ID';
+        else label.textContent = 'Register No (User ID)';
       });
     });
 
@@ -588,8 +597,12 @@ const App = {
         const name = document.getElementById('reg-name').value.trim();
         const email = document.getElementById('reg-email').value.trim();
         const pw = document.getElementById('reg-pw').value;
+        const userId = document.getElementById('reg-user-id').value.trim();
+        const department = document.getElementById('reg-dept').value.trim();
+        const year = document.getElementById('reg-year').value.trim();
+        const position = document.getElementById('reg-pos').value.trim();
 
-        if (!name || !email || !pw) {
+        if (!name || !email || !pw || !userId) {
           this.showToast('Please fill all required fields.', 'error');
           return;
         }
@@ -624,7 +637,7 @@ const App = {
           const res = await fetch(`${BASE_URL}/api/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ role, name, email, password: pw, institutionName: instName, institutionId: instId })
+            body: JSON.stringify({ role, name, email, password: pw, institutionName: instName, institutionId: instId, userId, department, year, position })
           });
           const data = await res.json();
 

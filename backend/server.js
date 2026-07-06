@@ -42,7 +42,7 @@ function isValidPassword(pw) {
 app.get('/api/db-state', async (req, res) => {
   try {
     const [institutions] = await pool.query('SELECT * FROM institutions');
-    const [users] = await pool.query('SELECT id, institution_id, role, name, email, phone, department, avatar, batch, roll_no, joined FROM users');
+    const [users] = await pool.query('SELECT id, institution_id, role, name, email, phone, department, avatar, batch, roll_no, year, position, joined FROM users');
     const [subjects] = await pool.query('SELECT * FROM subjects');
     const [timetable] = await pool.query('SELECT * FROM timetable');
     const [studentAttendance] = await pool.query('SELECT * FROM student_attendance');
@@ -60,7 +60,7 @@ app.get('/api/db-state', async (req, res) => {
 
     res.json({
       institutions: institutions.map(i => ({ id: i.id, name: i.name, createdAt: i.created_at })),
-      users: users.map(u => ({ id: u.id, institutionId: u.institution_id, role: u.role, name: u.name, email: u.email, phone: u.phone, department: u.department, avatar: u.avatar, batch: u.batch, rollNo: u.roll_no, joined: u.joined })),
+      users: users.map(u => ({ id: u.id, institutionId: u.institution_id, role: u.role, name: u.name, email: u.email, phone: u.phone, department: u.department, avatar: u.avatar, batch: u.batch, rollNo: u.roll_no, year: u.year, position: u.position, joined: u.joined })),
       subjects: subjects.map(s => ({ id: s.id, name: s.name, code: s.code, facultyId: s.faculty_id, department: s.department, batch: s.batch })),
       timetable: timetable.map(t => ({ id: t.id, batch: t.batch, day: t.day, period: t.period, time: t.time, subjectId: t.subject_id, facultyId: t.faculty_id, room: t.room })),
       studentAttendance: studentAttendance.map(sa => ({ id: sa.id, studentId: sa.student_id, subjectId: sa.subject_id, date: sa.date, period: sa.period, status: sa.status, markedBy: sa.marked_by, timestamp: sa.timestamp })),
@@ -108,6 +108,8 @@ app.post('/api/auth/login', async (req, res) => {
       avatar: safeUser.avatar,
       batch: safeUser.batch,
       rollNo: safeUser.roll_no,
+      year: safeUser.year,
+      position: safeUser.position,
       joined: safeUser.joined
     };
     res.json({ success: true, user: userData });
@@ -120,9 +122,9 @@ app.post('/api/auth/login', async (req, res) => {
 // POST /api/auth/register
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { role, name, email, password, institutionName, institutionId } = req.body;
+    const { role, name, email, password, institutionName, institutionId, userId, department, year, position } = req.body;
 
-    if (!role || !name || !email || !password) {
+    if (!role || !name || !email || !password || !userId) {
       return res.status(400).json({ error: 'All fields are required.' });
     }
     if (!isValidEmail(email)) {
@@ -130,6 +132,12 @@ app.post('/api/auth/register', async (req, res) => {
     }
     if (!isValidPassword(password)) {
       return res.status(400).json({ error: 'Password must be at least 8 characters with 1 uppercase letter and 1 number.' });
+    }
+
+    // Check if userId already exists
+    const [existingUser] = await pool.query('SELECT id FROM users WHERE id = ?', [userId.trim().toUpperCase()]);
+    if (existingUser.length > 0) {
+      return res.status(400).json({ error: 'This User ID / Register No is already taken. Please choose another.' });
     }
 
     // Check if email already exists
@@ -153,18 +161,19 @@ app.post('/api/auth/register', async (req, res) => {
       if (inst.length === 0) return res.status(400).json({ error: 'Institution not found.' });
     }
 
-    const prefix = role === 'admin' ? 'ADMIN' : (role === 'faculty' ? 'FAC' : 'STU');
-    const userId = genId(prefix);
+    const finalUserId = userId.trim().toUpperCase();
     const avatar = name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+    const dept = department || (role === 'admin' ? 'Administration' : 'General');
 
     await pool.query(
-      `INSERT INTO users (id, institution_id, role, name, email, phone, department, password, avatar, batch, roll_no, joined) 
-       VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, CURDATE())`,
-      [userId, instId, role, name, email, role === 'admin' ? 'Administration' : 'General', hashedPw, avatar,
-       role === 'student' ? 'Batch-1' : null, role === 'student' ? 'Pending' : null]
+      `INSERT INTO users (id, institution_id, role, name, email, phone, department, password, avatar, batch, roll_no, year, position, joined) 
+       VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, CURDATE())`,
+      [finalUserId, instId, role, name, email, dept, hashedPw, avatar,
+       role === 'student' ? 'Batch-1' : null, role === 'student' ? finalUserId : null,
+       role === 'student' ? (year || null) : null, role === 'faculty' ? (position || null) : null]
     );
 
-    const userData = { id: userId, institutionId: instId, role, name, email, phone: '', department: role === 'admin' ? 'Administration' : 'General', avatar, batch: role === 'student' ? 'Batch-1' : null, rollNo: role === 'student' ? 'Pending' : null, joined: new Date().toISOString().split('T')[0] };
+    const userData = { id: finalUserId, institutionId: instId, role, name, email, phone: '', department: dept, avatar, batch: role === 'student' ? 'Batch-1' : null, rollNo: role === 'student' ? finalUserId : null, year: role === 'student' ? (year || null) : null, position: role === 'faculty' ? (position || null) : null, joined: new Date().toISOString().split('T')[0] };
     res.json({ success: true, user: userData });
   } catch(e) {
     console.error(e);
@@ -189,21 +198,21 @@ app.get('/api/institutions', async (req, res) => {
 
 app.get('/api/users', async (req, res) => {
   try {
-    let sql = 'SELECT id, institution_id, role, name, email, phone, department, avatar, batch, roll_no, joined FROM users WHERE 1=1';
+    let sql = 'SELECT id, institution_id, role, name, email, phone, department, avatar, batch, roll_no, year, position, joined FROM users WHERE 1=1';
     const params = [];
     if (req.query.role) { sql += ' AND role = ?'; params.push(req.query.role); }
     if (req.query.institutionId) { sql += ' AND institution_id = ?'; params.push(req.query.institutionId); }
     const [rows] = await pool.query(sql, params);
-    res.json(rows.map(r => ({ id: r.id, institutionId: r.institution_id, role: r.role, name: r.name, email: r.email, phone: r.phone, department: r.department, avatar: r.avatar, batch: r.batch, rollNo: r.roll_no, joined: r.joined })));
+    res.json(rows.map(r => ({ id: r.id, institutionId: r.institution_id, role: r.role, name: r.name, email: r.email, phone: r.phone, department: r.department, avatar: r.avatar, batch: r.batch, rollNo: r.roll_no, year: r.year, position: r.position, joined: r.joined })));
   } catch(e) { res.status(500).json({ error: 'Server error.' }); }
 });
 
 app.get('/api/users/:id', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT id, institution_id, role, name, email, phone, department, avatar, batch, roll_no, joined FROM users WHERE id = ?', [req.params.id]);
+    const [rows] = await pool.query('SELECT id, institution_id, role, name, email, phone, department, avatar, batch, roll_no, year, position, joined FROM users WHERE id = ?', [req.params.id]);
     if (rows.length === 0) return res.status(404).json({ error: 'User not found.' });
     const r = rows[0];
-    res.json({ id: r.id, institutionId: r.institution_id, role: r.role, name: r.name, email: r.email, phone: r.phone, department: r.department, avatar: r.avatar, batch: r.batch, rollNo: r.roll_no, joined: r.joined });
+    res.json({ id: r.id, institutionId: r.institution_id, role: r.role, name: r.name, email: r.email, phone: r.phone, department: r.department, avatar: r.avatar, batch: r.batch, rollNo: r.roll_no, year: r.year, position: r.position, joined: r.joined });
   } catch(e) { res.status(500).json({ error: 'Server error.' }); }
 });
 

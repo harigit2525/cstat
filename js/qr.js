@@ -23,8 +23,8 @@ const QRManager = {
       text: this.getPayload(user),
       width: size,
       height: size,
-      colorDark: '#6C63FF',
-      colorLight: '#0f1225',
+      colorDark: '#000000',
+      colorLight: '#ffffff',
       correctLevel: QRCode.CorrectLevel.H
     });
   },
