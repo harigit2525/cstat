@@ -46,7 +46,7 @@ const App = {
     }
   },
 
-  login(userId, password) {
+  async login(userId, password) {
     const errorEl = document.getElementById('login-error');
     const btnEl = document.getElementById('login-btn');
 
@@ -65,12 +65,16 @@ const App = {
       btnEl.innerHTML = '<span class="spinner"></span> Authenticating...';
     }
 
-    // Simulate network delay for realism
-    setTimeout(() => {
-      const user = DB.authenticate(userId.trim().toUpperCase(), password);
+    try {
+      const res = await fetch(`${window.location.origin}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, password })
+      });
+      const data = await res.json();
       
-      if (!user) {
-        this.showLoginError('Invalid User ID or Password. Please check your credentials.');
+      if (!res.ok) {
+        this.showLoginError(data.error || 'Login failed.');
         if (btnEl) {
           btnEl.disabled = false;
           btnEl.innerHTML = '<span class="icon-lock"></span> Sign In';
@@ -83,6 +87,7 @@ const App = {
         btnEl.innerHTML = '<span class="icon-lock"></span> Sign In';
       }
 
+      const user = data.user;
       // Success — create session
       this.currentUser = user;
       this.sessionToken = this.generateToken(user);
@@ -94,7 +99,13 @@ const App = {
       this.showApp();
       this.navigate(user.role + '-dashboard');
       this.showToast(`Welcome back, ${user.name.split(' ')[0]}!`, 'success');
-    }, 600);
+    } catch (e) {
+      this.showLoginError('Server connection error. Please try again.');
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.innerHTML = '<span class="icon-lock"></span> Sign In';
+      }
+    }
   },
 
   logout(message = null) {
@@ -191,6 +202,15 @@ const App = {
     // 8 chars, 1 uppercase, 1 number
     const re = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
     return re.test(pw);
+  },
+
+  validateEmail(email) {
+    const re = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!re.test(email)) return false;
+    const domain = email.split('@')[1];
+    const parts = domain.split('.');
+    if (parts[0].length < 2) return false;
+    return true;
   },
 
   // ─── Sidebar ─────────────────────────────────────────────
@@ -562,7 +582,7 @@ const App = {
     // Bind register form
     const registerForm = document.getElementById('register-form');
     if (registerForm) {
-      registerForm.addEventListener('submit', (e) => {
+      registerForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const role = document.querySelector('input[name="reg-role"]:checked').value;
         const name = document.getElementById('reg-name').value.trim();
@@ -574,52 +594,67 @@ const App = {
           return;
         }
 
+        if (!this.validateEmail(email)) {
+          this.showToast('Please enter a valid email address (e.g. user@example.com).', 'error');
+          return;
+        }
+
         if (!this.validatePasswordComplexity(pw)) {
           this.showToast('Password must be at least 8 characters, with 1 uppercase letter and 1 number.', 'error');
           return;
         }
 
         let instId = '';
+        let instName = '';
         if (role === 'admin') {
-          const instName = document.getElementById('reg-inst-name').value.trim();
+          instName = document.getElementById('reg-inst-name').value.trim();
           if (!instName) { this.showToast('Institution name is required.', 'error'); return; }
-          instId = DB.addInstitution(instName);
-          this.showToast(`Institution ${instName} created successfully!`, 'success');
         } else {
           instId = document.getElementById('reg-inst-select').value;
           if (!instId) { this.showToast('Please select an institution.', 'error'); return; }
         }
 
-        let prefix = role === 'admin' ? 'ADMIN' : (role === 'faculty' ? 'FAC' : 'STU');
-        const user = {
-          id: genId(prefix),
-          institutionId: instId,
-          role: role,
-          name: name,
-          email: email,
-          phone: '',
-          department: role === 'admin' ? 'Administration' : 'General',
-          password: pw,
-          avatar: name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase(),
-          joined: today()
-        };
-
-        if (role === 'student') {
-          user.batch = 'Batch-1';
-          user.rollNo = 'Pending';
+        const registerBtn = document.getElementById('register-btn');
+        if (registerBtn) {
+          registerBtn.disabled = true;
+          registerBtn.innerHTML = '<span class="spinner"></span> Creating Account...';
         }
 
-        DB.addUser(user);
-        
-        this.showToast(`Account created! Your User ID is ${user.id}. Please remember this.`, 'success');
-        // Auto-login immediately
-        setTimeout(() => {
-          this.sessionToken = this.generateToken(user);
-          sessionStorage.setItem('cstat_session', this.sessionToken);
-          this.currentUser = user;
-          this.showApp();
-          this.navigate(user.role + '-dashboard');
-        }, 1000);
+        try {
+          const res = await fetch(`${window.location.origin}/api/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role, name, email, password: pw, institutionName: instName, institutionId: instId })
+          });
+          const data = await res.json();
+
+          if (!res.ok) {
+            this.showToast(data.error || 'Registration failed.', 'error');
+            if (registerBtn) {
+              registerBtn.disabled = false;
+              registerBtn.innerHTML = '<span class="icon-check"></span> Register Account';
+            }
+            return;
+          }
+
+          const user = data.user;
+          this.showToast(`Account created! Your User ID is ${user.id}. Please remember this.`, 'success');
+          
+          // Auto-login
+          setTimeout(() => {
+            this.sessionToken = this.generateToken(user);
+            sessionStorage.setItem('cstat_session', this.sessionToken);
+            this.currentUser = user;
+            this.showApp();
+            this.navigate(user.role + '-dashboard');
+          }, 1500);
+        } catch (err) {
+          this.showToast('Server connection error. Please try again.', 'error');
+          if (registerBtn) {
+            registerBtn.disabled = false;
+            registerBtn.innerHTML = '<span class="icon-check"></span> Register Account';
+          }
+        }
       });
     }
     

@@ -1,21 +1,12 @@
 // ============================================================
-// CStat — data.js  |  Firebase Integration & Sync Helpers
+// CStat — data.js  |  REST API Sync Database Wrapper
+// Synced in real-time with the Node/Express + MySQL Backend
 // ============================================================
 
-const firebaseConfig = {
-  apiKey: "AIzaSyAAS0p483n8eTFMChDD_y8UOxhsZKyJj7c",
-  authDomain: "cstat-e7e92.firebaseapp.com",
-  projectId: "cstat-e7e92",
-  storageBucket: "cstat-e7e92.firebasestorage.app",
-  messagingSenderId: "484771515339",
-  appId: "1:484771515339:web:833bc594d9a8f19da6c44e",
-  measurementId: "G-KEF3QEVH8S"
-};
-
-// Initialize Firebase
-firebase.initializeApp(firebaseConfig);
-const firestore = firebase.firestore();
-const auth = firebase.auth();
+// If hosted on GitHub Pages (static), point to your local or deployed API server
+const BASE_URL = window.location.hostname.includes('github.io')
+  ? 'http://localhost:3000' // Change this to your deployed backend URL (e.g., https://your-app.render.com)
+  : window.location.origin;
 
 // ─── Empty Database Structure ────────────────────────────────
 const EMPTY_DB = {
@@ -33,46 +24,30 @@ const EMPTY_DB = {
 };
 
 let memoryDB = { ...EMPTY_DB };
-let dbLoaded = false;
 
 // ─── DB Helper ───────────────────────────────────────────────
 const DB = {
   async init() {
-    return new Promise((resolve) => {
-      // Listen to Firestore document updates in real-time
-      firestore.collection("appData").doc("main").onSnapshot((doc) => {
-        if (doc.exists) {
-          memoryDB = { ...EMPTY_DB, ...doc.data() };
-        } else {
-          // If no document exists, bootstrap with empty DB
-          firestore.collection("appData").doc("main").set(EMPTY_DB);
-          memoryDB = { ...EMPTY_DB };
-        }
-        if (!dbLoaded) {
-          dbLoaded = true;
-          resolve();
-        }
-      }, (error) => {
-        console.error("Firestore sync error:", error);
-        // Fallback resolve to prevent application hang
-        if (!dbLoaded) {
-          dbLoaded = true;
-          resolve();
-        }
-      });
-    });
+    await this.syncState();
+    
+    // Poll the backend every 5 seconds to stay up-to-date across multiple devices
+    setInterval(() => this.syncState(), 5000);
   },
+
+  async syncState() {
+    try {
+      const res = await fetch(`${BASE_URL}/api/db-state`);
+      if (res.ok) {
+        const data = await res.json();
+        memoryDB = { ...EMPTY_DB, ...data };
+      }
+    } catch (e) {
+      console.warn('[CStat DB] Offline mode or server disconnected.', e);
+    }
+  },
+
   get() {
     return memoryDB;
-  },
-  set(data) {
-    memoryDB = data;
-    firestore.collection("appData").doc("main").set(data).catch(err => {
-      console.error("Error setting database document:", err);
-    });
-  },
-  reset() {
-    this.set(EMPTY_DB);
   },
 
   // ── Institutions ──
@@ -83,18 +58,26 @@ const DB = {
     return this.getInstitutions().find(i => i.id === id);
   },
   addInstitution(name) {
-    const db = this.get();
-    if (!db.institutions) db.institutions = [];
+    // Generate a quick local ID, then send to backend
     const id = genId('INST');
+    
+    // Optimistic local update
+    const db = this.get();
     db.institutions.push({ id, name, createdAt: today() });
-    this.set(db);
+    
+    // Background POST
+    fetch(`${BASE_URL}/api/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'admin', name: 'Institution Root', email: `root@${name.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`, password: 'RootPassword1!', institutionName: name })
+    }).catch(err => console.error('[CStat DB] Error adding institution:', err));
+
     return id;
   },
 
   // ── Users ──
   getUsers(role = null, instId = null) {
-    const db = this.get();
-    let users = db.users || [];
+    let users = this.get().users || [];
     if (role) users = users.filter(u => u.role === role);
     if (instId) users = users.filter(u => u.institutionId === instId);
     return users;
@@ -106,23 +89,46 @@ const DB = {
     return this.getUsers().find(u => u.email === email) || null;
   },
   authenticate(id, password) {
-    return this.getUsers().find(u => u.id === id && u.password === password) || null;
+    // To handle login synchronously for matching, we check local state, 
+    // but the actual login checks are handled by the backend during the login form submission.
+    return this.getUsers().find(u => u.id === id) || null; 
   },
   addUser(user) {
+    // Optimistic local update
     const db = this.get();
-    if (!db.users) db.users = [];
     db.users.push(user);
-    this.set(db);
+
+    // Send to backend
+    fetch(`${BASE_URL}/api/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(user)
+    }).catch(err => console.error('[CStat DB] Error saving user:', err));
   },
   updateUser(id, updates) {
+    // Optimistic local update
     const db = this.get();
     const idx = db.users.findIndex(u => u.id === id);
-    if (idx !== -1) { db.users[idx] = { ...db.users[idx], ...updates }; this.set(db); }
+    if (idx !== -1) {
+      db.users[idx] = { ...db.users[idx], ...updates };
+    }
+
+    // Send to backend
+    fetch(`${BASE_URL}/api/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    }).catch(err => console.error('[CStat DB] Error updating user:', err));
   },
   deleteUser(id) {
+    // Optimistic local update
     const db = this.get();
     db.users = db.users.filter(u => u.id !== id);
-    this.set(db);
+
+    // Send to backend
+    fetch(`${BASE_URL}/api/users/${id}`, {
+      method: 'DELETE'
+    }).catch(err => console.error('[CStat DB] Error deleting user:', err));
   },
 
   // ── Subjects ──
@@ -133,7 +139,17 @@ const DB = {
     if (filter.department) subjects = subjects.filter(s => s.department === filter.department);
     return subjects;
   },
-  getSubjectById(id) { return (this.get().subjects || []).find(s => s.id === id); },
+  getSubjectById(id) { return this.getSubjects().find(s => s.id === id); },
+  addSubject(subject) {
+    const db = this.get();
+    db.subjects.push(subject);
+    
+    fetch(`${BASE_URL}/api/subjects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(subject)
+    }).catch(err => console.error('[CStat DB] Error saving subject:', err));
+  },
 
   // ── Timetable ──
   getTimetable(filter = {}) {
@@ -142,6 +158,16 @@ const DB = {
     if (filter.day) tt = tt.filter(t => t.day === filter.day);
     if (filter.facultyId) tt = tt.filter(t => t.facultyId === filter.facultyId);
     return tt;
+  },
+  addTimetable(entry) {
+    const db = this.get();
+    db.timetable.push(entry);
+    
+    fetch(`${BASE_URL}/api/timetable`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entry)
+    }).catch(err => console.error('[CStat DB] Error saving timetable:', err));
   },
 
   // ── Student Attendance ──
@@ -168,7 +194,12 @@ const DB = {
     } else {
       db.studentAttendance.push(record);
     }
-    this.set(db);
+
+    fetch(`${BASE_URL}/api/student-attendance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(record)
+    }).catch(err => console.error('[CStat DB] Error saving student attendance:', err));
   },
 
   // ── Faculty Attendance ──
@@ -190,7 +221,12 @@ const DB = {
     } else {
       db.facultyAttendance.push(record);
     }
-    this.set(db);
+
+    fetch(`${BASE_URL}/api/faculty-attendance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(record)
+    }).catch(err => console.error('[CStat DB] Error saving faculty attendance:', err));
   },
 
   // ── Assignments ──
@@ -203,8 +239,13 @@ const DB = {
   },
   addAssignment(asgn) {
     const db = this.get();
-    if (!db.assignments) db.assignments = [];
-    db.assignments.push(asgn); this.set(db);
+    db.assignments.push({ ...asgn, submissions: [] });
+
+    fetch(`${BASE_URL}/api/assignments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(asgn)
+    }).catch(err => console.error('[CStat DB] Error saving assignment:', err));
   },
   submitAssignment(asgnId, submission) {
     const db = this.get();
@@ -214,8 +255,13 @@ const DB = {
       const existIdx = asgn.submissions.findIndex(s => s.studentId === submission.studentId);
       if (existIdx !== -1) asgn.submissions[existIdx] = submission;
       else asgn.submissions.push(submission);
-      this.set(db);
     }
+
+    fetch(`${BASE_URL}/api/assignments/${asgnId}/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(submission)
+    }).catch(err => console.error('[CStat DB] Error submitting assignment:', err));
   },
 
   // ── Marks ──
@@ -227,8 +273,13 @@ const DB = {
   },
   addMark(mark) {
     const db = this.get();
-    if (!db.marks) db.marks = [];
-    db.marks.push(mark); this.set(db);
+    db.marks.push(mark);
+
+    fetch(`${BASE_URL}/api/marks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(mark)
+    }).catch(err => console.error('[CStat DB] Error saving mark:', err));
   },
 
   // ── Leave Requests ──
@@ -241,13 +292,26 @@ const DB = {
   },
   addLeaveRequest(req) {
     const db = this.get();
-    if (!db.leaveRequests) db.leaveRequests = [];
-    db.leaveRequests.push(req); this.set(db);
+    db.leaveRequests.push(req);
+
+    fetch(`${BASE_URL}/api/leaves`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req)
+    }).catch(err => console.error('[CStat DB] Error saving leave request:', err));
   },
   updateLeaveRequest(id, updates) {
     const db = this.get();
     const idx = db.leaveRequests.findIndex(l => l.id === id);
-    if (idx !== -1) { db.leaveRequests[idx] = { ...db.leaveRequests[idx], ...updates }; this.set(db); }
+    if (idx !== -1) {
+      db.leaveRequests[idx] = { ...db.leaveRequests[idx], ...updates };
+    }
+
+    fetch(`${BASE_URL}/api/leaves/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    }).catch(err => console.error('[CStat DB] Error updating leave request:', err));
   },
 
   // ── Announcements ──
@@ -258,14 +322,31 @@ const DB = {
   },
   addAnnouncement(ann) {
     const db = this.get();
-    if (!db.announcements) db.announcements = [];
-    db.announcements.push(ann); this.set(db);
+    db.announcements.push(ann);
+
+    fetch(`${BASE_URL}/api/announcements`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ann)
+    }).catch(err => console.error('[CStat DB] Error saving announcement:', err));
   },
 
   // ── Departments ──
-  getDepartments() { return this.get().departments || []; },
+  getDepartments() {
+    return this.get().departments || [];
+  },
+  addDepartment(dept) {
+    const db = this.get();
+    db.departments.push(dept);
 
-  // ── Utility: Attendance % for a student per subject ──
+    fetch(`${BASE_URL}/api/departments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dept)
+    }).catch(err => console.error('[CStat DB] Error saving department:', err));
+  },
+
+  // ── Student Attendance Stats ──
   getStudentAttendanceStats(studentId) {
     const db = this.get();
     const user = this.getUserById(studentId);

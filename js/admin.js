@@ -297,13 +297,12 @@ const AdminViews = {
 
         const db = DB.get();
         if (!db.departments) db.departments = [];
-        db.departments.push({
-          id: genId('DEPT'),
+        DB.addDepartment({
           name,
           head,
-          batches: batchesInput.split(',').map(b => b.trim()).filter(Boolean)
+          batches: batchesInput.split(',').map(b => b.trim()).filter(Boolean),
+          institutionId: App.currentUser.institutionId
         });
-        DB.set(db);
         App.closeModal();
         App.showToast('Department added successfully', 'success');
         this.departments();
@@ -361,11 +360,8 @@ const AdminViews = {
           return;
         }
 
-        const db = DB.get();
-        if (!db.subjects) db.subjects = [];
         const id = genId('SUB');
-        db.subjects.push({ id, name, code, facultyId, department, batch });
-        DB.set(db);
+        DB.addSubject({ id, name, code, facultyId, department, batch });
         App.closeModal();
         App.showToast('Subject created successfully', 'success');
       });
@@ -410,17 +406,13 @@ const AdminViews = {
           return;
         }
 
-        const db = DB.get();
-        if (!db.timetable) db.timetable = [];
-        
-        // Check if there is already a class at this period for this batch/day
-        const conflict = db.timetable.find(t => t.batch === batch && t.day === day && t.period === period);
+        const conflict = DB.getTimetable({ batch, day, period }).length > 0;
         if (conflict) {
           App.showToast(`Conflict detected: Class already exists for Period P${period}`, 'error');
           return;
         }
 
-        db.timetable.push({
+        DB.addTimetable({
           id: genId('TT'),
           batch,
           day,
@@ -430,7 +422,6 @@ const AdminViews = {
           facultyId,
           room
         });
-        DB.set(db);
         App.closeModal();
         App.showToast('Class added to timetable', 'success');
         this.timetableView();
