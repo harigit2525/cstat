@@ -549,7 +549,7 @@ async function start() {
       console.log(`  ╚══════════════════════════════════════════╝\n`);
     });
   } catch(e) {
-    console.error('[CStat] Failed to start server:', e.message);
+    console.error('[CStat] Failed to start server:', e);
     console.error('Make sure MySQL is running and password is correct.');
     process.exit(1);
   }

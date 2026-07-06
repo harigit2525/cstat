@@ -6,7 +6,8 @@ const fs = require('fs');
 const path = require('path');
 
 const pgPool = new Pool({
-  connectionString: process.env.DATABASE_URL
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
 });
 
 const pool = {
