@@ -311,7 +311,7 @@ const App = {
       admin: [
         { title: 'Main', items: [
           { route: 'admin-dashboard', label: 'Dashboard', icon: 'icon-dashboard' },
-          { route: 'admin-scan-faculty', label: 'Scan Faculty QR', icon: 'icon-scan' },
+          { route: 'admin-scan-faculty', label: 'Mark Faculty Attendance', icon: 'icon-scan' },
         ]},
         { title: 'Management', items: [
           { route: 'admin-users', label: 'Manage Users', icon: 'icon-users' },
@@ -335,7 +335,7 @@ const App = {
         { title: 'Main', items: [
           { route: 'faculty-dashboard', label: 'Dashboard', icon: 'icon-dashboard' },
           { route: 'faculty-myqr', label: 'My QR Code', icon: 'icon-qr' },
-          { route: 'faculty-scan-student', label: 'Scan Student QR', icon: 'icon-scan' },
+          { route: 'faculty-scan-student', label: 'Mark Student Attendance', icon: 'icon-scan' },
         ]},
         { title: 'Academics', items: [
           { route: 'faculty-timetable', label: 'Timetable', icon: 'icon-calendar' },
@@ -352,7 +352,7 @@ const App = {
       student: [
         { title: 'Main', items: [
           { route: 'student-dashboard', label: 'Dashboard', icon: 'icon-dashboard' },
-          { route: 'student-myqr', label: 'My QR Code', icon: 'icon-qr' },
+          { route: 'student-myqr', label: 'My Codes', icon: 'icon-qr' },
         ]},
         { title: 'Academics', items: [
           { route: 'student-attendance', label: 'Attendance', icon: 'icon-check' },
@@ -437,8 +437,8 @@ const App = {
       'admin-profile':            () => AdminViews.profile(),
       // Faculty
       'faculty-dashboard':        () => FacultyViews.dashboard(),
-      'faculty-myqr':             () => FacultyViews.myQR(),
-      'faculty-scan-student':     () => FacultyViews.scanStudentQR(),
+      'faculty-myqr':             () => FacultyViews.myCode(),
+      'faculty-scan-student':     () => FacultyViews.markAttendanceList(),
       'faculty-timetable':        () => FacultyViews.timetable(),
       'faculty-class-attendance': () => FacultyViews.classAttendance(),
       'faculty-assignments':      () => FacultyViews.assignments(),
@@ -448,7 +448,7 @@ const App = {
       'faculty-profile':          () => FacultyViews.profile(),
       // Student
       'student-dashboard':        () => StudentViews.dashboard(),
-      'student-myqr':             () => StudentViews.myQR(),
+      'student-myqr':             () => StudentViews.myCode(),
       'student-attendance':       () => StudentViews.attendance(),
       'student-timetable':        () => StudentViews.timetable(),
       'student-marks':            () => StudentViews.marks(),
@@ -462,7 +462,7 @@ const App = {
     const titleMap = {
       'admin-dashboard': 'Admin Dashboard',
       'admin-users': 'Manage Users',
-      'admin-scan-faculty': 'Scan Faculty QR',
+      'admin-scan-faculty': 'Mark Faculty Attendance',
       'admin-faculty-attendance': 'Faculty Attendance',
       'admin-student-attendance': 'Student Attendance',
       'admin-leaves': 'Leave Requests',
@@ -472,8 +472,8 @@ const App = {
       'admin-reports': 'Reports & Analytics',
       'admin-profile': 'My Profile',
       'faculty-dashboard': 'Faculty Dashboard',
-      'faculty-myqr': 'My QR Code',
-      'faculty-scan-student': 'Scan Student QR',
+      'faculty-myqr': 'My Codes',
+      'faculty-scan-student': 'Mark Student Attendance',
       'faculty-timetable': 'My Timetable',
       'faculty-class-attendance': 'Class Attendance',
       'faculty-assignments': 'Assignments',
@@ -482,7 +482,7 @@ const App = {
       'faculty-leave': 'Leave Request',
       'faculty-profile': 'My Profile',
       'student-dashboard': 'Student Dashboard',
-      'student-myqr': 'My QR Code',
+      'student-myqr': 'My Codes',
       'student-attendance': 'My Attendance',
       'student-timetable': 'Timetable',
       'student-marks': 'Marks & Grades',

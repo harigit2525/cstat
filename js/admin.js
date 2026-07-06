@@ -27,7 +27,7 @@ const AdminViews = {
           <div class="glass-card">
             <div class="card-header"><h4>Quick Actions</h4></div>
             <div class="card-body" style="display:flex;gap:12px;flex-wrap:wrap">
-              <button class="btn btn-primary" onclick="App.navigate('admin-scan-faculty')"><span class="icon-scan"></span> Scan Faculty QR</button>
+              <button class="btn btn-primary" onclick="App.navigate('admin-scan-faculty')"><span class="icon-scan"></span> Mark Faculty Attendance</button>
               <button class="btn btn-secondary" onclick="App.navigate('admin-users')"><span class="icon-users"></span> Manage Users</button>
               <button class="btn btn-warning" onclick="App.navigate('admin-leaves')"><span class="icon-leave"></span> Leave Requests</button>
               <button class="btn btn-ghost" onclick="App.navigate('admin-announcements')"><span class="icon-bell"></span> Announcements</button>
@@ -144,42 +144,105 @@ const AdminViews = {
   scanFacultyQR() {
     const todayAtt = DB.getFacultyAttendance({ date: today() });
     const allFaculty = DB.getUsers('faculty');
+    
+    const renderFacultyList = () => {
+      if (!allFaculty.length) return '<p class="text-muted text-center mt-4">No faculty found.</p>';
+      
+      return `
+        <div class="table-wrap mt-4">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Faculty</th>
+                <th>Department</th>
+                <th>Entry/Exit Code</th>
+                <th>Action / Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${allFaculty.map(f => {
+                const att = todayAtt.find(a => a.facultyId === f.id);
+                if (att) {
+                  return `<tr>
+                    <td><strong>${f.name}</strong></td>
+                    <td>${f.department}</td>
+                    <td>-</td>
+                    <td><span class="status-badge ${att.status}">${att.status}</span></td>
+                  </tr>`;
+                } else {
+                  return `<tr>
+                    <td><strong>${f.name}</strong></td>
+                    <td>${f.department}</td>
+                    <td>
+                      <input type="text" class="form-input code-input" id="fac-code-${f.id}" placeholder="6-digit code" style="width:120px; font-family:monospace; letter-spacing:1px;" maxlength="6"/>
+                    </td>
+                    <td>
+                      <button class="btn btn-primary btn-sm mark-fac-btn" data-faculty="${f.id}" data-action="present">Present (Entry)</button>
+                      <button class="btn btn-warning btn-sm mark-fac-btn" data-faculty="${f.id}" data-action="leave">Leave</button>
+                    </td>
+                  </tr>`;
+                }
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="mt-4 text-right">
+          <button class="btn btn-danger" id="mark-rem-fac-absent">Submit Remaining as Absent</button>
+        </div>
+      `;
+    };
 
     document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn">
-      <div class="page-header"><h2>Scan Faculty QR — Day Attendance</h2><span class="text-muted">${formatDate(today())}</span></div>
+      <div class="page-header"><h2>Mark Faculty Attendance</h2><span class="text-muted">${formatDate(today())}</span></div>
       <div class="dashboard-grid">
-        <div class="glass-card"><div class="card-header"><h4>QR Scanner</h4></div><div class="card-body">
-          <div id="admin-scanner-container"><div class="text-center">
-            <button class="btn btn-primary btn-lg" id="start-faculty-scan"><span class="icon-scan"></span> Start Camera Scanner</button>
-            <p class="text-muted mt-3">Point your camera at a faculty member's QR code</p>
-          </div></div>
-          <div id="faculty-scan-result" style="display:none"></div>
-        </div></div>
-        <div class="glass-card"><div class="card-header"><h4>Today's Status (${todayAtt.length}/${allFaculty.length})</h4></div><div class="card-body">
-          ${allFaculty.length ? `<table class="data-table"><thead><tr><th>Faculty</th><th>Department</th><th>Status</th></tr></thead><tbody>
-            ${allFaculty.map(f => { const att = todayAtt.find(a => a.facultyId === f.id); return `<tr><td>${f.name}</td><td>${f.department}</td><td>${att ? `<span class="status-badge ${att.status}">${att.status}</span>` : '<span class="status-badge pending">Not Marked</span>'}</td></tr>`; }).join('')}
-          </tbody></table>` : '<p class="text-muted">No faculty</p>'}
+        <div class="glass-card" style="grid-column: 1 / -1;"><div class="card-header"><h4>Today's Status (${todayAtt.length}/${allFaculty.length})</h4></div><div class="card-body">
+          <div id="faculty-att-list">${renderFacultyList()}</div>
         </div></div>
       </div>
     </div>`;
 
-    setTimeout(() => {
-      document.getElementById('start-faculty-scan').addEventListener('click', () => {
-        QRScanner.start(document.getElementById('admin-scanner-container'), (data) => {
-          if (data.role !== 'faculty') { App.showToast('Not a faculty QR code', 'error'); return; }
-          const fac = DB.getUserById(data.id);
-          if (!fac) { App.showToast('Faculty not found', 'error'); return; }
-          const res = document.getElementById('faculty-scan-result');
-          res.style.display = 'block';
-          res.innerHTML = `<div class="scan-result"><div class="result-header"><div class="avatar">${fac.avatar}</div><div><div class="result-name">${fac.name}</div><p class="text-muted">${fac.id} · ${fac.department}</p></div></div>
-            <div class="mark-btn-group">
-              <button class="mark-btn present" onclick="AdminViews._markFac('${fac.id}','present')">✓ Present</button>
-              <button class="mark-btn late" onclick="AdminViews._markFac('${fac.id}','leave')">🏖️ Leave</button>
-              <button class="mark-btn absent" onclick="AdminViews._markFac('${fac.id}','absent')">✕ Absent</button>
-            </div></div>`;
+    const attachEvents = () => {
+      document.querySelectorAll('.mark-fac-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const facultyId = e.target.dataset.faculty;
+          const action = e.target.dataset.action;
+          const codeInput = document.getElementById(`fac-code-${facultyId}`).value.trim();
+          
+          if (!codeInput) {
+            App.showToast('Please enter the code provided by the faculty.', 'error');
+            return;
+          }
+          
+          const expectedEntryCode = genUniqueCode(facultyId, today(), 'entry');
+          const expectedExitCode = genUniqueCode(facultyId, today(), 'exit');
+          
+          if (codeInput !== expectedEntryCode && codeInput !== expectedExitCode) {
+            App.showToast('Invalid code! Please check again.', 'error');
+            return;
+          }
+          
+          AdminViews._markFac(facultyId, action);
         });
       });
-    }, 0);
+
+      const markRemBtn = document.getElementById('mark-rem-fac-absent');
+      if (markRemBtn) {
+        markRemBtn.addEventListener('click', () => {
+          let count = 0;
+          allFaculty.forEach(f => {
+            const att = todayAtt.find(a => a.facultyId === f.id);
+            if (!att) {
+              DB.addFacultyAttendance({ id: genId('FA'), facultyId: f.id, date: today(), status: 'absent', markedBy: App.currentUser.id, timestamp: now() });
+              count++;
+            }
+          });
+          App.showToast(`Marked ${count} remaining faculty as absent.`, 'info');
+          AdminViews.scanFacultyQR(); // Re-render
+        });
+      }
+    };
+
+    setTimeout(attachEvents, 0);
   },
 
   _markFac(facultyId, status) {

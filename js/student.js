@@ -49,19 +49,31 @@ const StudentViews = {
     </div>`;
   },
 
-  myQR() {
+  myCode() {
     const u = App.currentUser;
+    const todayTT = DB.getTimetable({ batch: u.batch, day: dayName() }).sort((a,b) => a.period - b.period);
+
     document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn">
-      <div class="page-header"><h2>My QR Code</h2></div>
-      <div class="glass-card" style="max-width:500px;margin:0 auto"><div class="card-body">
-        <div class="qr-display">
-          <div class="qr-frame" id="student-qr-container"></div>
-          <div class="qr-info"><h3>${u.name}</h3><p>${u.rollNo || ''} · ${u.batch} · ${u.department}</p></div>
-          <div class="qr-instructions">Show this QR code to Faculty for period-wise attendance marking</div>
-        </div>
+      <div class="page-header"><h2>My Attendance Codes</h2></div>
+      <div class="glass-card" style="max-width:600px;margin:0 auto"><div class="card-body text-center">
+        <h3 class="mb-4">Today's Unique Codes</h3>
+        <p class="text-muted mb-4">Provide the corresponding code to your faculty to mark attendance.</p>
+        
+        ${todayTT.length ? `<div style="display:grid;gap:12px;text-align:left;">
+          ${todayTT.map(t => {
+            const sub = DB.getSubjectById(t.subjectId);
+            const code = genUniqueCode(u.id, today(), t.period);
+            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;">
+              <div>
+                <strong style="font-size:1.1rem;">Period ${t.period}</strong>
+                <div class="text-muted" style="font-size:0.9rem;">${sub ? sub.name : '-'}</div>
+              </div>
+              <div style="font-size:1.5rem;font-weight:bold;letter-spacing:2px;color:var(--primary);">${code}</div>
+            </div>`;
+          }).join('')}
+        </div>` : '<p class="text-muted">No classes scheduled for today.</p>'}
       </div></div>
     </div>`;
-    setTimeout(() => QRManager.render('student-qr-container', u, 250), 100);
   },
 
   attendance() {

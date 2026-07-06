@@ -402,6 +402,17 @@ function genId(prefix) {
   return prefix + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
 }
 
+// ─── Unique Code Generator ───────────────────────────────────
+function genUniqueCode(userId, dateStr, context) {
+  const str = userId + '|' + dateStr + '|' + context + '|cstat-secret-2026';
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString().substring(0, 6).padStart(6, '0');
+}
+
 // ─── Date Helpers ────────────────────────────────────────────
 function today() { return new Date().toISOString().split('T')[0]; }
 function now() { return new Date().toISOString(); }

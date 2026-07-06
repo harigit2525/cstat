@@ -38,8 +38,8 @@ const FacultyViews = {
 
       <div class="dashboard-grid">
         <div class="glass-card"><div class="card-header"><h4>Quick Actions</h4></div><div class="card-body" style="display:flex;gap:12px;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="App.navigate('faculty-scan-student')"><span class="icon-scan"></span> Scan Student QR</button>
-          <button class="btn btn-secondary" onclick="App.navigate('faculty-myqr')"><span class="icon-qr"></span> My QR Code</button>
+          <button class="btn btn-primary" onclick="App.navigate('faculty-scan-student')"><span class="icon-scan"></span> Mark Student Attendance</button>
+          <button class="btn btn-secondary" onclick="App.navigate('faculty-myqr')"><span class="icon-qr"></span> My Codes</button>
           <button class="btn btn-ghost" onclick="App.navigate('faculty-assignments')"><span class="icon-file"></span> Assignments</button>
         </div></div>
 
@@ -56,96 +56,177 @@ const FacultyViews = {
     </div>`;
   },
 
-  myQR() {
+  myCode() {
     const u = App.currentUser;
+    const entryCode = genUniqueCode(u.id, today(), 'entry');
+    const exitCode = genUniqueCode(u.id, today(), 'exit');
+    
     document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn">
-      <div class="page-header"><h2>My QR Code</h2></div>
-      <div class="glass-card" style="max-width:500px;margin:0 auto">
-        <div class="card-body">
-          <div class="qr-display">
-            <div class="qr-frame" id="faculty-qr-container"></div>
-            <div class="qr-info"><h3>${u.name}</h3><p>${u.id} · ${u.department}</p><p class="text-muted">${u.email}</p></div>
-            <div class="qr-instructions">Show this QR code to the Admin for day-wise attendance marking</div>
+      <div class="page-header"><h2>My Entry/Exit Codes</h2></div>
+      <div class="glass-card" style="max-width:600px;margin:0 auto"><div class="card-body text-center">
+        <h3 class="mb-4">Today's Unique Codes</h3>
+        <p class="text-muted mb-4">Provide these codes to the Admin when entering or leaving the campus.</p>
+        
+        <div style="display:grid;gap:12px;text-align:left;">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:4px solid var(--success);">
+            <div>
+              <strong style="font-size:1.1rem;">Entry Code</strong>
+              <div class="text-muted" style="font-size:0.9rem;">Show upon arrival</div>
+            </div>
+            <div style="font-size:1.5rem;font-weight:bold;letter-spacing:2px;color:var(--success);">${entryCode}</div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:4px solid var(--warning);">
+            <div>
+              <strong style="font-size:1.1rem;">Exit Code</strong>
+              <div class="text-muted" style="font-size:0.9rem;">Show upon departure</div>
+            </div>
+            <div style="font-size:1.5rem;font-weight:bold;letter-spacing:2px;color:var(--warning);">${exitCode}</div>
           </div>
         </div>
-      </div>
+      </div></div>
     </div>`;
-    setTimeout(() => QRManager.render('faculty-qr-container', u, 250), 100);
   },
 
-  scanStudentQR() {
+  markAttendanceList() {
     const u = App.currentUser;
     const subjects = DB.getSubjects({ facultyId: u.id });
     const defaultSub = subjects[0] ? subjects[0].id : '';
     let selectedPeriod = 1;
     let selectedSubject = defaultSub;
 
-    const renderTodayAtt = () => {
-      const records = DB.getStudentAttendance({ subjectId: selectedSubject, date: today() });
-      if (!records.length) return '<p class="text-muted text-center mt-4">No attendance marked yet</p>';
-      return `<table class="data-table mt-4"><thead><tr><th>Student</th><th>Roll No</th><th>Period</th><th>Status</th><th>Time</th></tr></thead><tbody>
-        ${records.map(r => { const s = DB.getUserById(r.studentId); return `<tr><td>${s ? s.name : r.studentId}</td><td>${s ? s.rollNo || '-' : '-'}</td><td>P${r.period}</td><td><span class="status-badge ${r.status}">${r.status}</span></td><td>${formatDateTime(r.timestamp)}</td></tr>`; }).join('')}
-      </tbody></table>`;
+    const renderStudentList = () => {
+      const sub = DB.getSubjectById(selectedSubject);
+      if (!sub) return '<p class="text-muted text-center mt-4">Select a subject to view students</p>';
+      
+      const students = DB.getUsers('student').filter(s => s.batch === sub.batch);
+      if (!students.length) return '<p class="text-muted text-center mt-4">No students found in this batch</p>';
+      
+      // Get today's attendance to see who is already marked
+      const todayRecords = DB.getStudentAttendance({ subjectId: selectedSubject, date: today(), period: selectedPeriod });
+      
+      return `
+        <div class="table-wrap mt-4">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Roll No</th>
+                <th>Code Input</th>
+                <th>Action / Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${students.map(s => {
+                const marked = todayRecords.find(r => r.studentId === s.id);
+                if (marked) {
+                  return `<tr>
+                    <td><strong>${s.name}</strong></td>
+                    <td>${s.rollNo || '-'}</td>
+                    <td>-</td>
+                    <td><span class="status-badge ${marked.status}">${marked.status}</span></td>
+                  </tr>`;
+                } else {
+                  return `<tr>
+                    <td><strong>${s.name}</strong></td>
+                    <td>${s.rollNo || '-'}</td>
+                    <td><input type="text" class="form-input code-input" id="code-${s.id}" placeholder="6-digit code" style="width:120px; font-family:monospace; letter-spacing:1px;" maxlength="6"/></td>
+                    <td>
+                      <button class="btn btn-primary btn-sm mark-btn" data-student="${s.id}" data-action="present">Present</button>
+                      <button class="btn btn-warning btn-sm mark-btn" data-student="${s.id}" data-action="late">Late</button>
+                    </td>
+                  </tr>`;
+                }
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="mt-4 text-right">
+          <button class="btn btn-danger" id="mark-remaining-absent">Submit Remaining as Absent</button>
+        </div>
+      `;
     };
 
     document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn">
-      <div class="page-header"><h2>Scan Student QR — Period Attendance</h2><span class="text-muted">${formatDate(today())}</span></div>
+      <div class="page-header"><h2>Mark Class Attendance</h2><span class="text-muted">${formatDate(today())}</span></div>
 
       <div class="dashboard-grid">
-        <div class="glass-card"><div class="card-header"><h4>Scanner Setup</h4></div><div class="card-body">
+        <div class="glass-card"><div class="card-header"><h4>Class Setup</h4></div><div class="card-body">
           <div class="form-group"><label class="form-label">Subject</label>
             <select class="form-select" id="scan-subject">${subjects.map(s => `<option value="${s.id}">${s.name} (${s.code})</option>`).join('')}</select></div>
           <div class="form-group"><label class="form-label">Period</label>
             <div class="period-selector" id="period-selector">${[1,2,3,4,5,6,7,8].map(p => `<button class="period-pill ${p === 1 ? 'active' : ''}" data-period="${p}">${p}</button>`).join('')}</div></div>
-          <div class="divider"></div>
-          <div id="faculty-scanner-container"><div class="text-center">
-            <button class="btn btn-primary btn-lg" id="start-stu-scan"><span class="icon-scan"></span> Start Camera Scanner</button>
-            <p class="text-muted mt-3">Point camera at student's QR code</p>
-          </div></div>
-          <div id="stu-scan-result" style="display:none"></div>
         </div></div>
 
-        <div class="glass-card"><div class="card-header"><h4>Today's Attendance</h4></div><div class="card-body">
-          <div id="today-att-list">${renderTodayAtt()}</div>
+        <div class="glass-card" style="grid-column: 1 / -1;"><div class="card-header"><h4>Student List</h4></div><div class="card-body">
+          <div id="student-att-list">${renderStudentList()}</div>
         </div></div>
       </div>
     </div>`;
+
+    const attachListEvents = () => {
+      document.querySelectorAll('.mark-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const studentId = e.target.dataset.student;
+          const action = e.target.dataset.action; // 'present' or 'late'
+          const codeInput = document.getElementById(`code-${studentId}`).value.trim();
+          
+          if (!codeInput) {
+            App.showToast('Please enter the code provided by the student.', 'error');
+            return;
+          }
+          
+          const expectedCode = genUniqueCode(studentId, today(), selectedPeriod);
+          if (codeInput !== expectedCode) {
+            App.showToast('Invalid code! Please check again.', 'error');
+            return;
+          }
+          
+          DB.addStudentAttendance({ id: genId('SA'), studentId, subjectId: selectedSubject, date: today(), period: selectedPeriod, status: action, markedBy: u.id, timestamp: now() });
+          App.showToast(`Marked ${action} successfully`, 'success');
+          document.getElementById('student-att-list').innerHTML = renderStudentList();
+          attachListEvents();
+        });
+      });
+
+      const markRemBtn = document.getElementById('mark-remaining-absent');
+      if (markRemBtn) {
+        markRemBtn.addEventListener('click', () => {
+          const sub = DB.getSubjectById(selectedSubject);
+          if (!sub) return;
+          const students = DB.getUsers('student').filter(s => s.batch === sub.batch);
+          const todayRecords = DB.getStudentAttendance({ subjectId: selectedSubject, date: today(), period: selectedPeriod });
+          
+          let count = 0;
+          students.forEach(s => {
+            const marked = todayRecords.find(r => r.studentId === s.id);
+            if (!marked) {
+              DB.addStudentAttendance({ id: genId('SA'), studentId: s.id, subjectId: selectedSubject, date: today(), period: selectedPeriod, status: 'absent', markedBy: u.id, timestamp: now() });
+              count++;
+            }
+          });
+          App.showToast(`Marked ${count} remaining students as absent.`, 'info');
+          document.getElementById('student-att-list').innerHTML = renderStudentList();
+          attachListEvents();
+        });
+      }
+    };
 
     setTimeout(() => {
       document.querySelectorAll('#period-selector .period-pill').forEach(btn => btn.addEventListener('click', () => {
         document.querySelectorAll('#period-selector .period-pill').forEach(b => b.classList.remove('active'));
         btn.classList.add('active'); selectedPeriod = parseInt(btn.dataset.period);
+        document.getElementById('student-att-list').innerHTML = renderStudentList();
+        attachListEvents();
       }));
       const scanSubSelect = document.getElementById('scan-subject');
       if (scanSubSelect) {
-        scanSubSelect.addEventListener('change', function() { selectedSubject = this.value; document.getElementById('today-att-list').innerHTML = renderTodayAtt(); });
-      }
-
-      document.getElementById('start-stu-scan').addEventListener('click', () => {
-        QRScanner.start(document.getElementById('faculty-scanner-container'), (data) => {
-          if (data.role !== 'student') { App.showToast('Not a student QR code', 'error'); return; }
-          const stu = DB.getUserById(data.id);
-          if (!stu) { App.showToast('Student not found', 'error'); return; }
-          const res = document.getElementById('stu-scan-result');
-          res.style.display = 'block';
-          res.innerHTML = `<div class="scan-result"><div class="result-header"><div class="avatar">${stu.avatar}</div><div><div class="result-name">${stu.name}</div><p class="text-muted">${stu.rollNo || ''} · ${stu.batch} · ${stu.department}</p></div></div>
-            <p class="text-muted mb-3">Subject: <strong>${DB.getSubjectById(selectedSubject)?.name || '-'}</strong> | Period: <strong>P${selectedPeriod}</strong></p>
-            <div class="mark-btn-group">
-              <button class="mark-btn present" id="mark-present">✓ Present</button>
-              <button class="mark-btn late" id="mark-late">⏰ Late</button>
-              <button class="mark-btn absent" id="mark-absent">✕ Absent</button>
-            </div></div>`;
-
-          ['present', 'late', 'absent'].forEach(status => {
-            document.getElementById(`mark-${status}`).addEventListener('click', () => {
-              DB.addStudentAttendance({ id: genId('SA'), studentId: stu.id, subjectId: selectedSubject, date: today(), period: selectedPeriod, status, markedBy: u.id, timestamp: now() });
-              App.showToast(`${stu.name} marked as ${status}`, 'success');
-              res.style.display = 'none';
-              document.getElementById('today-att-list').innerHTML = renderTodayAtt();
-            });
-          });
+        scanSubSelect.addEventListener('change', function() { 
+          selectedSubject = this.value; 
+          document.getElementById('student-att-list').innerHTML = renderStudentList();
+          attachListEvents();
         });
-      });
+      }
+      attachListEvents();
     }, 0);
   },
 
