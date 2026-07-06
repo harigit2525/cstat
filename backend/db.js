@@ -5,8 +5,10 @@ const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
 
+const dbUrl = process.env.DATABASE_URL ? process.env.DATABASE_URL.replace('?sslmode=require', '') : '';
+
 const pgPool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: dbUrl,
   ssl: { rejectUnauthorized: false }
 });
 
