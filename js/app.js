@@ -66,7 +66,7 @@ const App = {
     }
 
     try {
-      const res = await fetch(`${window.location.origin}/api/auth/login`, {
+      const res = await fetch(`${BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, password })
@@ -621,7 +621,7 @@ const App = {
         }
 
         try {
-          const res = await fetch(`${window.location.origin}/api/auth/register`, {
+          const res = await fetch(`${BASE_URL}/api/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ role, name, email, password: pw, institutionName: instName, institutionId: instId })

@@ -5,7 +5,7 @@
 
 // If hosted on GitHub Pages (static), point to your local or deployed API server
 const BASE_URL = window.location.hostname.includes('github.io')
-  ? 'http://localhost:3000' // Change this to your deployed backend URL (e.g., https://your-app.render.com)
+  ? 'https://cstat.onrender.com' // Deployed backend URL
   : window.location.origin;
 
 // ─── Empty Database Structure ────────────────────────────────
