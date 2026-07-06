@@ -524,13 +524,28 @@ app.get('/api/attendance-stats/:studentId', async (req, res) => {
 //  BOOT
 // ════════════════════════════════════════════════════════════
 
+const os = require('os');
+function getLocalIp() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+}
+
 async function start() {
   try {
     await initDB();
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
+      const localIp = getLocalIp();
       console.log(`\n  ╔══════════════════════════════════════════╗`);
-      console.log(`  ║  CStat Backend running on port ${PORT}        ║`);
-      console.log(`  ║  Open: http://localhost:${PORT}             ║`);
+      console.log(`  ║  CStat Backend running!                  ║`);
+      console.log(`  ║  Local: http://localhost:${PORT}             ║`);
+      console.log(`  ║  Mobile: http://${localIp.padEnd(15)}:${PORT}     ║`);
       console.log(`  ╚══════════════════════════════════════════╝\n`);
     });
   } catch(e) {

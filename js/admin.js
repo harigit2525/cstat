@@ -93,10 +93,14 @@ const AdminViews = {
       document.getElementById('mu-save').addEventListener('click', () => {
         const role = document.getElementById('mu-role').value;
         const name = document.getElementById('mu-name').value.trim();
+        const email = document.getElementById('mu-email').value.trim();
+        
         if (!name) { App.showToast('Name is required', 'error'); return; }
+        if (email && !App.validateEmail(email)) { App.showToast('Please enter a valid email address.', 'error'); return; }
+        
         const id = genId(role === 'student' ? 'STU' : 'FAC');
         const user = { id, role, name, avatar: name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase(),
-          email: document.getElementById('mu-email').value || '', phone: document.getElementById('mu-phone').value || '',
+          email: email, phone: document.getElementById('mu-phone').value || '',
           department: document.getElementById('mu-dept').value, password: document.getElementById('mu-password').value || (role === 'student' ? 'student123' : 'faculty123'), joined: today() };
         if (role === 'student') { user.batch = document.getElementById('mu-batch').value || ''; user.rollNo = document.getElementById('mu-rollno').value || ''; user.year = 1; }
         else { user.subjects = []; }
