@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS assignments (
   subject_id VARCHAR(50) NOT NULL,
   batch VARCHAR(50) NOT NULL,
   due_date DATE NOT NULL,
+  pdf_path VARCHAR(255) DEFAULT NULL,
   created_at DATE NOT NULL
 );
 
@@ -100,6 +101,15 @@ CREATE TABLE IF NOT EXISTS assignment_submissions (
   student_id VARCHAR(50) NOT NULL,
   content TEXT,
   submitted_at TIMESTAMP NOT NULL,
+  FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
+);
+
+-- Assignment Scores
+CREATE TABLE IF NOT EXISTS assignment_scores (
+  assignment_id VARCHAR(50) NOT NULL,
+  student_id VARCHAR(50) NOT NULL,
+  score INT NOT NULL,
+  PRIMARY KEY (assignment_id, student_id),
   FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
 );
 

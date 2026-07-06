@@ -33,6 +33,14 @@ async function initDB() {
   // Safe migrations for new columns
   try { await pgPool.query('ALTER TABLE users ADD COLUMN year VARCHAR(20) DEFAULT NULL'); } catch(e) {}
   try { await pgPool.query('ALTER TABLE users ADD COLUMN position VARCHAR(100) DEFAULT NULL'); } catch(e) {}
+  try { await pgPool.query('ALTER TABLE assignments ADD COLUMN pdf_path VARCHAR(255) DEFAULT NULL'); } catch(e) {}
+  try { await pgPool.query(`CREATE TABLE IF NOT EXISTS assignment_scores (
+    assignment_id VARCHAR(50) NOT NULL,
+    student_id VARCHAR(50) NOT NULL,
+    score INT NOT NULL,
+    PRIMARY KEY (assignment_id, student_id),
+    FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
+  )`); } catch(e) {}
 
   console.log('[CStat DB] Database connected and schema applied successfully.');
 }

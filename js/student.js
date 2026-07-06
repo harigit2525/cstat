@@ -18,7 +18,7 @@ const StudentViews = {
     const overallPct = totalClasses > 0 ? Math.round((totalAttended / totalClasses) * 100) : 0;
     const pendingAsgn = assignments.filter(a => !a.submissions.find(s => s.studentId === u.id)).length;
     let avgMarks = 0;
-    if (allMarks.length) { avgMarks = Math.round(allMarks.reduce((s, m) => s + (m.marks / m.maxMarks) * 100, 0) / allMarks.length); }
+    if (allMarks.length) { avgMarks = Math.round(allMarks.reduce((s, m) => s + (parseFloat(m.marksObtained) / parseFloat(m.maxMarks)) * 100, 0) / allMarks.length); }
     const lowSubjects = stats.filter(s => s.percentage < 75);
 
     document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn">
@@ -121,28 +121,92 @@ const StudentViews = {
     document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn"><div class="page-header"><h2>Assignments</h2></div>
       ${asgns.length ? asgns.map(a => {
         const sub = DB.getSubjectById(a.subjectId);
-        const submission = a.submissions.find(s => s.studentId === u.id);
+        const submission = a.submissions ? a.submissions.find(s => s.studentId === u.id) : null;
         const isPast = new Date(a.dueDate) < new Date(today());
-        return `<div class="glass-card mb-4"><div class="card-body"><div class="flex-between flex-wrap gap-3"><div><h4>${a.title}</h4><p class="text-muted" style="font-size:var(--fs-sm)">${sub ? sub.name : '-'} · Due: ${formatDate(a.dueDate)}</p></div>
-          <div>${submission ? '<span class="status-badge submitted">Submitted</span>' : isPast ? '<span class="status-badge absent">Missed</span>' : `<button class="btn btn-primary btn-sm" onclick="StudentViews._submitAssignment('${a.id}')">Submit</button>`}</div></div>
+        
+        let subStatusHtml = '';
+        if (submission) {
+          subStatusHtml = `<span class="status-badge submitted">Submitted</span>`;
+          if (submission.score !== undefined && submission.score !== null) {
+            subStatusHtml += ` <span class="status-badge present ml-2">Score: ${submission.score} / ${a.maxMarks || 20}</span>`;
+          } else {
+            subStatusHtml += ` <span class="status-badge warning ml-2">Pending Grade</span>`;
+          }
+        } else if (isPast) {
+          subStatusHtml = `<span class="status-badge absent">Missed</span>`;
+        } else {
+          subStatusHtml = `<button class="btn btn-primary btn-sm" onclick="StudentViews._submitAssignment('${a.id}')">Submit PDF</button>`;
+        }
+
+        return `<div class="glass-card mb-4"><div class="card-body">
+          <div class="flex-between flex-wrap gap-3">
+            <div>
+              <h4>${a.title}</h4>
+              <p class="text-muted" style="font-size:var(--fs-sm)">${sub ? sub.name : '-'} · Due: ${formatDate(a.dueDate)}</p>
+            </div>
+            <div>${subStatusHtml}</div>
+          </div>
           <p class="mt-3" style="font-size:var(--fs-sm);color:var(--text-secondary)">${a.description}</p>
-          <div class="mt-2"><span class="status-badge">Max: ${a.maxMarks} marks</span></div></div></div>`; }).join('')
-      : '<div class="empty-state"><div class="empty-icon">📄</div><h3>No assignments</h3></div>'}
+          <div class="mt-2 flex items-center gap-3">
+            <span class="status-badge">Max: ${a.maxMarks || 20} marks</span>
+            ${a.pdfPath ? `<a href="${BASE_URL}/uploads/${a.pdfPath}" target="_blank" class="btn btn-ghost btn-sm">📄 Download Question PDF</a>` : ''}
+          </div>
+        </div></div>`; 
+      }).join('') : '<div class="empty-state"><div class="empty-icon">📄</div><h3>No assignments</h3></div>'}
     </div>`;
   },
 
   _submitAssignment(asgnId) {
-    App.showModal('Submit Assignment', `
-      <div class="form-group"><label class="form-label">Your Submission</label><textarea class="form-textarea" id="sub-text" rows="4" placeholder="Describe your work or paste a link..."></textarea></div>`,
-      `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="sub-save">Submit</button>`);
-    setTimeout(() => {
-      document.getElementById('sub-save').addEventListener('click', () => {
-        const text = document.getElementById('sub-text').value.trim();
-        if (!text) { App.showToast('Enter submission details', 'error'); return; }
-        DB.submitAssignment(asgnId, { studentId: App.currentUser.id, content: text, submittedAt: now() });
-        App.closeModal(); App.showToast('Assignment submitted', 'success'); StudentViews.assignments();
-      });
-    }, 0);
+    App.showModal('Submit Assignment (PDF Upload)', `
+      <div class="form-group">
+        <label class="form-label">Upload Answer PDF (Drag & Drop or click to browse)</label>
+        <div class="drag-drop-zone" id="ans-dropzone">
+          <span class="drag-icon">📁</span>
+          <p>Drag PDF file here or click to upload</p>
+          <input type="file" id="ans-file" accept="application/pdf" style="display:none" />
+          <div id="file-name-preview" class="text-success mt-2 font-semibold"></div>
+        </div>
+      </div>
+    `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="ans-save">Submit</button>`);
+
+    const dropzone = document.getElementById('ans-dropzone');
+    const fileInput = document.getElementById('ans-file');
+    const preview = document.getElementById('file-name-preview');
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) {
+        fileInput.files = e.dataTransfer.files;
+        preview.textContent = fileInput.files[0].name;
+      }
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) preview.textContent = fileInput.files[0].name;
+    });
+
+    document.getElementById('ans-save').addEventListener('click', async () => {
+      if (!fileInput.files.length) {
+        App.showToast('Please select a PDF file to submit', 'error');
+        return;
+      }
+      const fd = new FormData();
+      fd.append('studentId', App.currentUser.id);
+      fd.append('pdf', fileInput.files[0]);
+
+      App.showToast('Uploading your submission...', 'info');
+      const res = await DB.submitAssignmentWithPDF(asgnId, fd);
+      if (res.success) {
+        App.closeModal();
+        App.showToast('Assignment submitted successfully', 'success');
+        StudentViews.assignments();
+      } else {
+        App.showToast(res.error || 'Failed to submit assignment', 'error');
+      }
+    });
   },
 
   marks() {
@@ -161,7 +225,7 @@ const StudentViews = {
         const sub = DB.getSubjectById(subId);
         return `<div class="glass-card mb-4"><div class="card-header"><h4>${sub ? sub.name : subId}</h4></div><div class="card-body">
           <table class="data-table"><thead><tr><th>Exam</th><th>Marks</th><th>Max</th><th>Percentage</th></tr></thead><tbody>
-          ${marks.map(m => `<tr><td>${m.examType}</td><td>${m.marks}</td><td>${m.maxMarks}</td><td><span class="status-badge ${Math.round((m.marks/m.maxMarks)*100) >= 50 ? 'present' : 'absent'}">${Math.round((m.marks/m.maxMarks)*100)}%</span></td></tr>`).join('')}
+          ${marks.map(m => `<tr><td>${m.examType}</td><td>${m.marksObtained}</td><td>${m.maxMarks}</td><td><span class="status-badge ${Math.round((parseFloat(m.marksObtained)/parseFloat(m.maxMarks))*100) >= 50 ? 'present' : 'absent'}">${Math.round((parseFloat(m.marksObtained)/parseFloat(m.maxMarks))*100)}%</span></td></tr>`).join('')}
           </tbody></table></div></div>`; }).join('')
       : '<div class="empty-state"><div class="empty-icon">🏆</div><h3>No marks recorded yet</h3></div>'}
     </div>`;

@@ -165,20 +165,56 @@ const App = {
     }
   },
 
-  showRegister(e) {
-    if(e) e.preventDefault();
-    document.getElementById('login-page').style.display = 'none';
-    document.getElementById('forgot-page').style.display = 'none';
-    document.getElementById('app-page').style.display = 'none';
-    document.getElementById('register-page').style.display = 'flex';
-    
-    // Populate institutions
-    const sel = document.getElementById('reg-inst-select');
-    if(sel) {
-      const insts = DB.getInstitutions();
-      sel.innerHTML = insts.length ? insts.map(i => `<option value="${i.id}">${i.name}</option>`).join('') : '<option value="">No institutions registered yet</option>';
-    }
-  },
+    showRegister(e) {
+      if(e) e.preventDefault();
+      document.getElementById('login-page').style.display = 'none';
+      document.getElementById('forgot-page').style.display = 'none';
+      document.getElementById('app-page').style.display = 'none';
+      document.getElementById('register-page').style.display = 'flex';
+
+      // Populate institutions
+      const sel = document.getElementById('reg-inst-select');
+      if(sel) {
+        const insts = DB.getInstitutions();
+        sel.innerHTML = insts.length ? insts.map(i => `<option value="${i.id}">${i.name}</option>`).join('') : '<option value="">No institutions registered yet</option>';
+      }
+
+      // Role selector handling
+      const roleRadios = document.getElementsByName('reg-role');
+      const yearGroup = document.getElementById('reg-year-group');
+      const posGroup = document.getElementById('reg-pos-group');
+      const adminFields = document.getElementById('reg-admin-fields');
+      const memberFields = document.getElementById('reg-member-fields');
+
+      function updateFormVisibility() {
+        const selected = document.querySelector('input[name="reg-role"]:checked').value;
+        if (selected === 'admin') {
+          adminFields.style.display = 'block';
+          memberFields.style.display = 'none';
+          yearGroup.style.display = 'none';
+          posGroup.style.display = 'none';
+          document.getElementById('reg-year').required = false;
+          document.getElementById('reg-pos').required = false;
+        } else {
+          adminFields.style.display = 'none';
+          memberFields.style.display = 'block';
+          if (selected === 'student') {
+            yearGroup.style.display = 'block';
+            posGroup.style.display = 'none';
+            document.getElementById('reg-year').required = true;
+            document.getElementById('reg-pos').required = false;
+          } else if (selected === 'faculty') {
+            yearGroup.style.display = 'none';
+            posGroup.style.display = 'block';
+            document.getElementById('reg-year').required = false;
+            document.getElementById('reg-pos').required = true;
+          }
+        }
+      }
+
+      roleRadios.forEach(r => r.addEventListener('change', updateFormVisibility));
+      updateFormVisibility();
+    },
 
   showForgotPassword(e) {
     if(e) e.preventDefault();

@@ -1,14 +1,11 @@
 // ============================================================
 // CStat — data.js  |  REST API Sync Database Wrapper
-// Synced in real-time with the Node/Express + MySQL Backend
 // ============================================================
 
-// If hosted on GitHub Pages (static), point to your local or deployed API server
 const BASE_URL = window.location.hostname.includes('github.io')
-  ? 'https://cstat.onrender.com' // Deployed backend URL
+  ? 'https://cstat.onrender.com'
   : window.location.origin;
 
-// ─── Empty Database Structure ────────────────────────────────
 const EMPTY_DB = {
   institutions: [],
   users: [],
@@ -20,17 +17,21 @@ const EMPTY_DB = {
   marks: [],
   leaveRequests: [],
   announcements: [],
-  departments: []
+  departments: [],
+  periods: []
 };
 
 let memoryDB = { ...EMPTY_DB };
 
-// ─── DB Helper ───────────────────────────────────────────────
 const DB = {
+  // ── Periods ──
+  getPeriods() { return this.get().periods || []; },
+  setPeriods(periods) { const db = this.get(); db.periods = periods; },
+  addPeriod(period) { const db = this.get(); if (!db.periods) db.periods = []; db.periods.push(period); },
+  deletePeriod(id) { const db = this.get(); if (!db.periods) return; db.periods = db.periods.filter(p => p.id !== id); },
+
   async init() {
     await this.syncState();
-    
-    // Poll the backend every 5 seconds to stay up-to-date across multiple devices
     setInterval(() => this.syncState(), 5000);
   },
 
@@ -46,32 +47,20 @@ const DB = {
     }
   },
 
-  get() {
-    return memoryDB;
-  },
+  get() { return memoryDB; },
 
   // ── Institutions ──
-  getInstitutions() {
-    return this.get().institutions || [];
-  },
-  getInstitutionById(id) {
-    return this.getInstitutions().find(i => i.id === id);
-  },
+  getInstitutions() { return this.get().institutions || []; },
+  getInstitutionById(id) { return this.getInstitutions().find(i => i.id === id); },
   addInstitution(name) {
-    // Generate a quick local ID, then send to backend
     const id = genId('INST');
-    
-    // Optimistic local update
     const db = this.get();
     db.institutions.push({ id, name, createdAt: today() });
-    
-    // Background POST
     fetch(`${BASE_URL}/api/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role: 'admin', name: 'Institution Root', email: `root@${name.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`, password: 'RootPassword1!', institutionName: name })
     }).catch(err => console.error('[CStat DB] Error adding institution:', err));
-
     return id;
   },
 
@@ -82,23 +71,12 @@ const DB = {
     if (instId) users = users.filter(u => u.institutionId === instId);
     return users;
   },
-  getUserById(id) {
-    return this.getUsers().find(u => u.id === id) || null;
-  },
-  getUserByEmail(email) {
-    return this.getUsers().find(u => u.email === email) || null;
-  },
-  authenticate(id, password) {
-    // To handle login synchronously for matching, we check local state, 
-    // but the actual login checks are handled by the backend during the login form submission.
-    return this.getUsers().find(u => u.id === id) || null; 
-  },
+  getUserById(id) { return this.getUsers().find(u => u.id === id) || null; },
+  getUserByEmail(email) { return this.getUsers().find(u => u.email === email) || null; },
+  authenticate(id, password) { return this.getUsers().find(u => u.id === id) || null; },
   addUser(user) {
-    // Optimistic local update
     const db = this.get();
     db.users.push(user);
-
-    // Send to backend
     fetch(`${BASE_URL}/api/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -106,14 +84,9 @@ const DB = {
     }).catch(err => console.error('[CStat DB] Error saving user:', err));
   },
   updateUser(id, updates) {
-    // Optimistic local update
     const db = this.get();
     const idx = db.users.findIndex(u => u.id === id);
-    if (idx !== -1) {
-      db.users[idx] = { ...db.users[idx], ...updates };
-    }
-
-    // Send to backend
+    if (idx !== -1) db.users[idx] = { ...db.users[idx], ...updates };
     fetch(`${BASE_URL}/api/users/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -121,14 +94,10 @@ const DB = {
     }).catch(err => console.error('[CStat DB] Error updating user:', err));
   },
   deleteUser(id) {
-    // Optimistic local update
     const db = this.get();
     db.users = db.users.filter(u => u.id !== id);
-
-    // Send to backend
-    fetch(`${BASE_URL}/api/users/${id}`, {
-      method: 'DELETE'
-    }).catch(err => console.error('[CStat DB] Error deleting user:', err));
+    fetch(`${BASE_URL}/api/users/${id}`, { method: 'DELETE' })
+      .catch(err => console.error('[CStat DB] Error deleting user:', err));
   },
 
   // ── Subjects ──
@@ -143,7 +112,6 @@ const DB = {
   addSubject(subject) {
     const db = this.get();
     db.subjects.push(subject);
-    
     fetch(`${BASE_URL}/api/subjects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -157,17 +125,33 @@ const DB = {
     if (filter.batch) tt = tt.filter(t => t.batch === filter.batch);
     if (filter.day) tt = tt.filter(t => t.day === filter.day);
     if (filter.facultyId) tt = tt.filter(t => t.facultyId === filter.facultyId);
+    if (filter.period !== undefined) tt = tt.filter(t => t.period == filter.period);
     return tt;
   },
   addTimetable(entry) {
     const db = this.get();
     db.timetable.push(entry);
-    
     fetch(`${BASE_URL}/api/timetable`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entry)
     }).catch(err => console.error('[CStat DB] Error saving timetable:', err));
+  },
+  updateTimetable(id, updates) {
+    const db = this.get();
+    const idx = db.timetable.findIndex(t => t.id === id);
+    if (idx !== -1) db.timetable[idx] = { ...db.timetable[idx], ...updates };
+    fetch(`${BASE_URL}/api/timetable/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...updates })
+    }).catch(err => console.error('[CStat DB] Error updating timetable:', err));
+  },
+  deleteTimetable(id) {
+    const db = this.get();
+    db.timetable = db.timetable.filter(t => t.id !== id);
+    fetch(`${BASE_URL}/api/timetable/${id}`, { method: 'DELETE' })
+      .catch(err => console.error('[CStat DB] Error deleting timetable:', err));
   },
 
   // ── Student Attendance ──
@@ -194,7 +178,6 @@ const DB = {
     } else {
       db.studentAttendance.push(record);
     }
-
     fetch(`${BASE_URL}/api/student-attendance`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -221,7 +204,6 @@ const DB = {
     } else {
       db.facultyAttendance.push(record);
     }
-
     fetch(`${BASE_URL}/api/faculty-attendance`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -240,12 +222,28 @@ const DB = {
   addAssignment(asgn) {
     const db = this.get();
     db.assignments.push({ ...asgn, submissions: [] });
-
     fetch(`${BASE_URL}/api/assignments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(asgn)
     }).catch(err => console.error('[CStat DB] Error saving assignment:', err));
+  },
+  // Upload assignment with PDF via FormData
+  async addAssignmentWithPDF(formData) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/assignments`, {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (res.ok) {
+        await this.syncState();
+        return { success: true, id: data.id };
+      }
+      return { success: false, error: data.error };
+    } catch(e) {
+      return { success: false, error: 'Network error' };
+    }
   },
   submitAssignment(asgnId, submission) {
     const db = this.get();
@@ -256,12 +254,46 @@ const DB = {
       if (existIdx !== -1) asgn.submissions[existIdx] = submission;
       else asgn.submissions.push(submission);
     }
-
     fetch(`${BASE_URL}/api/assignments/${asgnId}/submit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(submission)
     }).catch(err => console.error('[CStat DB] Error submitting assignment:', err));
+  },
+  // Submit assignment with PDF via FormData
+  async submitAssignmentWithPDF(asgnId, formData) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/assignments/${asgnId}/submit`, {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (res.ok) {
+        await this.syncState();
+        return { success: true };
+      }
+      return { success: false, error: data.error };
+    } catch(e) {
+      return { success: false, error: 'Network error' };
+    }
+  },
+  // Score a student's assignment submission
+  async scoreAssignment(asgnId, studentId, score, maxScore) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/assignments/${asgnId}/score`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId, score, maxScore })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        await this.syncState();
+        return { success: true };
+      }
+      return { success: false, error: data.error };
+    } catch(e) {
+      return { success: false, error: 'Network error' };
+    }
   },
 
   // ── Marks ──
@@ -274,7 +306,6 @@ const DB = {
   addMark(mark) {
     const db = this.get();
     db.marks.push(mark);
-
     fetch(`${BASE_URL}/api/marks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -293,7 +324,6 @@ const DB = {
   addLeaveRequest(req) {
     const db = this.get();
     db.leaveRequests.push(req);
-
     fetch(`${BASE_URL}/api/leaves`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -303,10 +333,7 @@ const DB = {
   updateLeaveRequest(id, updates) {
     const db = this.get();
     const idx = db.leaveRequests.findIndex(l => l.id === id);
-    if (idx !== -1) {
-      db.leaveRequests[idx] = { ...db.leaveRequests[idx], ...updates };
-    }
-
+    if (idx !== -1) db.leaveRequests[idx] = { ...db.leaveRequests[idx], ...updates };
     fetch(`${BASE_URL}/api/leaves/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -323,7 +350,6 @@ const DB = {
   addAnnouncement(ann) {
     const db = this.get();
     db.announcements.push(ann);
-
     fetch(`${BASE_URL}/api/announcements`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -332,13 +358,10 @@ const DB = {
   },
 
   // ── Departments ──
-  getDepartments() {
-    return this.get().departments || [];
-  },
+  getDepartments() { return this.get().departments || []; },
   addDepartment(dept) {
     const db = this.get();
     db.departments.push(dept);
-
     fetch(`${BASE_URL}/api/departments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -347,6 +370,7 @@ const DB = {
   },
 
   // ── Student Attendance Stats ──
+  // Returns array of { subjectName, subjectId, percentage, attended, total, present, late, absent }
   getStudentAttendanceStats(studentId) {
     const db = this.get();
     const user = this.getUserById(studentId);
@@ -359,8 +383,16 @@ const DB = {
       const late = records.filter(a => a.status === 'late').length;
       const absent = records.filter(a => a.status === 'absent').length;
       const attended = present + late;
-      const pct = total > 0 ? Math.round((attended / total) * 100) : 0;
-      return { subject: sub, total, present, late, absent, attended, pct };
+      const percentage = total > 0 ? Math.round((attended / total) * 100) : 0;
+      return {
+        subject: sub,
+        subjectId: sub.id,
+        subjectName: sub.name,
+        total, present, late, absent, attended,
+        percentage,
+        // legacy alias
+        pct: percentage
+      };
     });
   }
 };
@@ -375,10 +407,14 @@ function today() { return new Date().toISOString().split('T')[0]; }
 function now() { return new Date().toISOString(); }
 function dayName() { return ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()]; }
 function formatDate(dateStr) {
+  if (!dateStr) return '-';
   const d = new Date(dateStr);
+  if (isNaN(d)) return dateStr;
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 function formatDateTime(dtStr) {
+  if (!dtStr) return '-';
   const d = new Date(dtStr);
+  if (isNaN(d)) return dtStr;
   return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }

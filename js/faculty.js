@@ -17,12 +17,23 @@ const FacultyViews = {
     const attPct = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
     const pendingAsgn = assignments.filter(a => new Date(a.dueDate) >= new Date(today())).length;
 
+    // To compute students below 75% attendance for all classes taught by this faculty
+    let lowAttCount = 0;
+    const students = DB.getUsers('student');
+    students.forEach(s => {
+      const stats = DB.getStudentAttendanceStats(s.id);
+      const mySubjectsStats = stats.filter(st => st.subject.facultyId === u.id);
+      if (mySubjectsStats.some(st => st.percentage < 75)) {
+        lowAttCount++;
+      }
+    });
+
     document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn">
       <div class="stats-grid">
         <div class="stat-card"><div class="stat-icon primary">📚</div><div class="stat-value">${subjects.length}</div><div class="stat-label">My Subjects</div></div>
         <div class="stat-card"><div class="stat-icon secondary">📅</div><div class="stat-value">${todayTT.length}</div><div class="stat-label">Today's Classes</div></div>
         <div class="stat-card"><div class="stat-icon ${attPct >= 75 ? 'success' : 'warning'}">📈</div><div class="stat-value">${attPct}%</div><div class="stat-label">My Attendance</div></div>
-        <div class="stat-card"><div class="stat-icon info">📄</div><div class="stat-value">${pendingAsgn}</div><div class="stat-label">Active Assignments</div></div>
+        <div class="stat-card"><div class="stat-icon info">⚠️</div><div class="stat-value">${lowAttCount}</div><div class="stat-label">Students < 75% Att.</div></div>
       </div>
 
       <div class="dashboard-grid">
@@ -105,7 +116,10 @@ const FacultyViews = {
         document.querySelectorAll('#period-selector .period-pill').forEach(b => b.classList.remove('active'));
         btn.classList.add('active'); selectedPeriod = parseInt(btn.dataset.period);
       }));
-      document.getElementById('scan-subject').addEventListener('change', function() { selectedSubject = this.value; document.getElementById('today-att-list').innerHTML = renderTodayAtt(); });
+      const scanSubSelect = document.getElementById('scan-subject');
+      if (scanSubSelect) {
+        scanSubSelect.addEventListener('change', function() { selectedSubject = this.value; document.getElementById('today-att-list').innerHTML = renderTodayAtt(); });
+      }
 
       document.getElementById('start-stu-scan').addEventListener('click', () => {
         QRScanner.start(document.getElementById('faculty-scanner-container'), (data) => {
@@ -190,22 +204,151 @@ const FacultyViews = {
   timetable() {
     const u = App.currentUser;
     const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const subjects = DB.getSubjects({ facultyId: u.id });
+    
     const renderDay = (day) => {
       const tt = DB.getTimetable({ facultyId: u.id, day });
-      if (!tt.length) return '<p class="text-muted text-center p-4">No classes</p>';
-      return `<table class="data-table"><thead><tr><th>Period</th><th>Time</th><th>Subject</th><th>Batch</th><th>Room</th></tr></thead><tbody>
-        ${tt.sort((a,b) => a.period - b.period).map(t => { const sub = DB.getSubjectById(t.subjectId); return `<tr><td>P${t.period}</td><td>${t.time}</td><td>${sub ? sub.name : '-'}</td><td>${t.batch}</td><td>${t.room}</td></tr>`; }).join('')}
+      if (!tt.length) return '<p class="text-muted text-center p-4">No classes scheduled. Click "Add Class" below to schedule one.</p>';
+      return `<table class="data-table"><thead><tr><th>Period</th><th>Time</th><th>Subject</th><th>Batch</th><th>Room</th><th>Actions</th></tr></thead><tbody>
+        ${tt.sort((a,b) => a.period - b.period).map(t => { 
+          const sub = DB.getSubjectById(t.subjectId); 
+          return `<tr>
+            <td>P${t.period}</td>
+            <td>${t.time}</td>
+            <td>${sub ? sub.name : '-'}</td>
+            <td>${t.batch}</td>
+            <td>${t.room}</td>
+            <td>
+              <button class="btn btn-ghost btn-sm" onclick="FacultyViews._editTimetableEntry('${t.id}')">✏️</button>
+              <button class="btn btn-danger btn-sm" onclick="FacultyViews._deleteTimetableEntry('${t.id}')">🗑️</button>
+            </td>
+          </tr>`; 
+        }).join('')}
       </tbody></table>`;
     };
 
-    document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn"><div class="page-header"><h2>My Timetable</h2></div>
+    document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn">
+      <div class="page-header">
+        <h2>My Timetable</h2>
+        <button class="btn btn-primary" id="fac-add-class-btn"><span class="icon-add"></span> Add Class</button>
+      </div>
       <div class="tab-nav" id="tt-days">${days.map(d => `<button class="tab-btn ${d === dayName() ? 'active' : ''}" data-day="${d}">${d.substring(0,3)}</button>`).join('')}</div>
       <div id="tt-out" class="glass-card"><div class="card-body">${renderDay(dayName() || 'Monday')}</div></div>
     </div>`;
-    setTimeout(() => { document.querySelectorAll('#tt-days .tab-btn').forEach(btn => btn.addEventListener('click', () => {
-      document.querySelectorAll('#tt-days .tab-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active');
-      document.querySelector('#tt-out .card-body').innerHTML = renderDay(btn.dataset.day);
-    })); }, 0);
+
+    setTimeout(() => { 
+      document.querySelectorAll('#tt-days .tab-btn').forEach(btn => btn.addEventListener('click', () => {
+        document.querySelectorAll('#tt-days .tab-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active');
+        document.querySelector('#tt-out .card-body').innerHTML = renderDay(btn.dataset.day);
+      }));
+
+      document.getElementById('fac-add-class-btn').addEventListener('click', () => {
+        const activeDay = document.querySelector('#tt-days .tab-btn.active')?.dataset.day || 'Monday';
+        App.showModal('Add Timetable Class', `
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Day</label><select class="form-select" id="add-tt-day">${days.map(d => `<option ${d === activeDay ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
+            <div class="form-group"><label class="form-label">Period</label><input type="number" class="form-input" id="add-tt-period" min="1" value="1"/></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Time Slot</label><input class="form-input" id="add-tt-time" required placeholder="e.g. 09:00 - 10:00"/></div>
+            <div class="form-group"><label class="form-label">Room</label><input class="form-input" id="add-tt-room" required placeholder="e.g. Room 402"/></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Subject</label><select class="form-select" id="add-tt-sub">${subjects.map(s => `<option value="${s.id}">${s.name} (${s.code})</option>`).join('')}</select></div>
+            <div class="form-group"><label class="form-label">Batch</label><input class="form-input" id="add-tt-batch" placeholder="e.g. CS-2026" required/></div>
+          </div>
+        `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="add-tt-save">Save</button>`);
+
+        const subSelector = document.getElementById('add-tt-sub');
+        if (subSelector && subjects.length > 0) {
+          const updateBatch = () => {
+            const selectedSub = DB.getSubjectById(subSelector.value);
+            if (selectedSub) document.getElementById('add-tt-batch').value = selectedSub.batch;
+          };
+          subSelector.addEventListener('change', updateBatch);
+          updateBatch();
+        }
+
+        document.getElementById('add-tt-save').addEventListener('click', () => {
+          const day = document.getElementById('add-tt-day').value;
+          const period = parseInt(document.getElementById('add-tt-period').value);
+          const time = document.getElementById('add-tt-time').value.trim();
+          const room = document.getElementById('add-tt-room').value.trim();
+          const subjectId = document.getElementById('add-tt-sub').value;
+          const batch = document.getElementById('add-tt-batch').value.trim();
+
+          if (!time || !room || !subjectId || !batch || isNaN(period)) {
+            App.showToast('Please fill all fields correctly', 'error');
+            return;
+          }
+
+          const conflict = DB.getTimetable({ batch, day, period }).length > 0;
+          if (conflict) {
+            App.showToast(`Conflict: Class already scheduled for P${period} on ${day} for ${batch}`, 'error');
+            return;
+          }
+
+          DB.addTimetable({ id: genId('TT'), batch, day, period, time, subjectId, facultyId: u.id, room });
+          App.closeModal();
+          App.showToast('Timetable entry added successfully', 'success');
+          setTimeout(() => FacultyViews.timetable(), 300);
+        });
+      });
+    }, 0);
+  },
+
+  _editTimetableEntry(id) {
+    const entry = DB.getTimetable().find(t => t.id === id);
+    if (!entry) return;
+    const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const subjects = DB.getSubjects({ facultyId: App.currentUser.id });
+
+    App.showModal('Edit Timetable Class', `
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Day</label><select class="form-select" id="edit-tt-day">${days.map(d => `<option ${d === entry.day ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Period</label><input type="number" class="form-input" id="edit-tt-period" min="1" value="${entry.period}"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Time Slot</label><input class="form-input" id="edit-tt-time" value="${entry.time}" required/></div>
+        <div class="form-group"><label class="form-label">Room</label><input class="form-input" id="edit-tt-room" value="${entry.room}" required/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Subject</label><select class="form-select" id="edit-tt-sub">${subjects.map(s => `<option value="${s.id}" ${s.id === entry.subjectId ? 'selected' : ''}>${s.name}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Batch</label><input class="form-input" id="edit-tt-batch" value="${entry.batch}" required/></div>
+      </div>
+    `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="edit-tt-save">Update</button>`);
+
+    document.getElementById('edit-tt-save').addEventListener('click', () => {
+      const day = document.getElementById('edit-tt-day').value;
+      const period = parseInt(document.getElementById('edit-tt-period').value);
+      const time = document.getElementById('edit-tt-time').value.trim();
+      const room = document.getElementById('edit-tt-room').value.trim();
+      const subjectId = document.getElementById('edit-tt-sub').value;
+      const batch = document.getElementById('edit-tt-batch').value.trim();
+
+      if (!time || !room || !subjectId || !batch || isNaN(period)) {
+        App.showToast('Please fill all fields correctly', 'error');
+        return;
+      }
+
+      DB.updateTimetable(id, { batch, day, period, time, subjectId, room });
+      App.closeModal();
+      App.showToast('Timetable entry updated', 'success');
+      setTimeout(() => FacultyViews.timetable(), 300);
+    });
+  },
+
+  _deleteTimetableEntry(id) {
+    App.showModal('Confirm Delete', '<p>Are you sure you want to delete this timetable entry?</p>', `
+      <button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button>
+      <button class="btn btn-danger" id="del-tt-confirm">Delete</button>
+    `);
+    document.getElementById('del-tt-confirm').addEventListener('click', () => {
+      DB.deleteTimetable(id);
+      App.closeModal();
+      App.showToast('Entry deleted', 'success');
+      setTimeout(() => FacultyViews.timetable(), 300);
+    });
   },
 
   assignments() {
@@ -213,35 +356,169 @@ const FacultyViews = {
     const asgns = DB.getAssignments({ facultyId: u.id });
     const subjects = DB.getSubjects({ facultyId: u.id });
 
-    document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn"><div class="page-header"><h2>Assignments</h2><button class="btn btn-primary" id="add-asgn"><span class="icon-add"></span> New Assignment</button></div>
-      ${asgns.length ? asgns.map(a => { const sub = DB.getSubjectById(a.subjectId); const totalStu = DB.getUsers('student').filter(s => s.batch === a.batch).length;
-        return `<div class="glass-card mb-4"><div class="card-body"><div class="flex-between"><div><h4>${a.title}</h4><p class="text-muted" style="font-size:var(--fs-sm)">${sub ? sub.name : '-'} · ${a.batch} · Due: ${formatDate(a.dueDate)}</p></div>
-          <div class="text-right"><div style="font-size:var(--fs-lg);font-weight:700">${a.submissions.length}/${totalStu}</div><div class="text-muted" style="font-size:var(--fs-xs)">Submissions</div></div></div>
-          <p class="mt-3" style="font-size:var(--fs-sm);color:var(--text-secondary)">${a.description.substring(0, 100)}...</p>
-          <div class="mt-3"><span class="status-badge">Max: ${a.maxMarks} marks</span></div></div></div>`; }).join('')
-        : '<div class="empty-state"><div class="empty-icon">📄</div><h3>No assignments</h3></div>'}
+    document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn"><div class="page-header"><h2>Assignments & Grading</h2><button class="btn btn-primary" id="add-asgn"><span class="icon-add"></span> New Assignment</button></div>
+      ${asgns.length ? asgns.map(a => { 
+        const sub = DB.getSubjectById(a.subjectId); 
+        const totalStu = DB.getUsers('student').filter(s => s.batch === a.batch).length;
+        const subCount = a.submissions ? a.submissions.length : 0;
+        return `<div class="glass-card mb-4"><div class="card-body">
+          <div class="flex-between">
+            <div>
+              <h4>${a.title}</h4>
+              <p class="text-muted" style="font-size:var(--fs-sm)">${sub ? sub.name : '-'} · ${a.batch} · Due: ${formatDate(a.dueDate)}</p>
+            </div>
+            <div class="text-right">
+              <div style="font-size:var(--fs-lg);font-weight:700">${subCount}/${totalStu}</div>
+              <div class="text-muted" style="font-size:var(--fs-xs)">Submissions</div>
+            </div>
+          </div>
+          <p class="mt-3" style="font-size:var(--fs-sm);color:var(--text-secondary)">${a.description}</p>
+          <div class="mt-3 flex-between flex-wrap gap-2">
+            <div>
+              <span class="status-badge">Max: ${a.maxMarks || 20} marks</span>
+              ${a.pdfPath ? `<a href="${BASE_URL}/uploads/${a.pdfPath}" target="_blank" class="btn btn-ghost btn-sm ml-2">📄 Download Question PDF</a>` : ''}
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="FacultyViews._viewSubmissions('${a.id}')">Grade Submissions</button>
+          </div>
+        </div></div>`; 
+      }).join('') : '<div class="empty-state"><div class="empty-icon">📄</div><h3>No assignments</h3></div>'}
     </div>`;
 
     setTimeout(() => {
       document.getElementById('add-asgn').addEventListener('click', () => {
-        App.showModal('New Assignment', `
+        App.showModal('New Assignment (Drag & Drop)', `
           <div class="form-group"><label class="form-label">Title</label><input class="form-input" id="asgn-title" required/></div>
-          <div class="form-group"><label class="form-label">Description</label><textarea class="form-textarea" id="asgn-desc" rows="3"></textarea></div>
-          <div class="form-row"><div class="form-group"><label class="form-label">Subject</label><select class="form-select" id="asgn-sub">${subjects.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}</select></div>
-          <div class="form-group"><label class="form-label">Batch</label><input class="form-input" id="asgn-batch" value="${subjects[0]?.batch || ''}"/></div></div>
-          <div class="form-row"><div class="form-group"><label class="form-label">Due Date</label><input type="date" class="form-input" id="asgn-due"/></div>
-          <div class="form-group"><label class="form-label">Max Marks</label><input type="number" class="form-input" id="asgn-marks" value="20"/></div></div>`,
-          `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="asgn-save">Create</button>`);
-        setTimeout(() => {
-          document.getElementById('asgn-sub').addEventListener('change', function() { const sub = DB.getSubjectById(this.value); if (sub) document.getElementById('asgn-batch').value = sub.batch; });
-          document.getElementById('asgn-save').addEventListener('click', () => {
-            const title = document.getElementById('asgn-title').value.trim(); if (!title) { App.showToast('Title required', 'error'); return; }
-            DB.addAssignment({ id: genId('ASG'), title, description: document.getElementById('asgn-desc').value, subjectId: document.getElementById('asgn-sub').value, facultyId: u.id, batch: document.getElementById('asgn-batch').value, dueDate: document.getElementById('asgn-due').value, maxMarks: parseInt(document.getElementById('asgn-marks').value) || 20, createdAt: today(), submissions: [] });
-            App.closeModal(); App.showToast('Assignment created', 'success'); FacultyViews.assignments();
+          <div class="form-group"><label class="form-label">Description</label><textarea class="form-textarea" id="asgn-desc" rows="2"></textarea></div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Subject</label><select class="form-select" id="asgn-sub">${subjects.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}</select></div>
+            <div class="form-group"><label class="form-label">Batch</label><input class="form-input" id="asgn-batch" value="${subjects[0]?.batch || ''}"/></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Due Date</label><input type="date" class="form-input" id="asgn-due"/></div>
+            <div class="form-group"><label class="form-label">Max Marks</label><input type="number" class="form-input" id="asgn-marks" value="20"/></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Question PDF (Drag & Drop or click to browse)</label>
+            <div class="drag-drop-zone" id="asgn-dropzone">
+              <span class="drag-icon">📁</span>
+              <p>Drag file here or click to upload</p>
+              <input type="file" id="asgn-file" accept="application/pdf" style="display:none" />
+              <div id="file-name-preview" class="text-success mt-2 font-semibold"></div>
+            </div>
+          </div>
+        `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="asgn-save">Create</button>`);
+
+        const subEl = document.getElementById('asgn-sub');
+        if (subEl) {
+          subEl.addEventListener('change', function() {
+            const s = DB.getSubjectById(this.value);
+            if (s) document.getElementById('asgn-batch').value = s.batch;
           });
-        }, 0);
+        }
+
+        const dropzone = document.getElementById('asgn-dropzone');
+        const fileInput = document.getElementById('asgn-file');
+        const preview = document.getElementById('file-name-preview');
+
+        dropzone.addEventListener('click', () => fileInput.click());
+        dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+        dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+        dropzone.addEventListener('drop', (e) => {
+          e.preventDefault();
+          dropzone.classList.remove('dragover');
+          if (e.dataTransfer.files.length) {
+            fileInput.files = e.dataTransfer.files;
+            preview.textContent = fileInput.files[0].name;
+          }
+        });
+        fileInput.addEventListener('change', () => {
+          if (fileInput.files.length) preview.textContent = fileInput.files[0].name;
+        });
+
+        document.getElementById('asgn-save').addEventListener('click', async () => {
+          const title = document.getElementById('asgn-title').value.trim();
+          if (!title) { App.showToast('Title required', 'error'); return; }
+          const fd = new FormData();
+          fd.append('title', title);
+          fd.append('description', document.getElementById('asgn-desc').value);
+          fd.append('subjectId', document.getElementById('asgn-sub').value);
+          fd.append('facultyId', u.id);
+          fd.append('batch', document.getElementById('asgn-batch').value);
+          fd.append('dueDate', document.getElementById('asgn-due').value);
+          fd.append('maxMarks', document.getElementById('asgn-marks').value);
+          if (fileInput.files.length) fd.append('pdf', fileInput.files[0]);
+
+          App.showToast('Uploading assignment...', 'info');
+          const result = await DB.addAssignmentWithPDF(fd);
+          if (result.success) {
+            App.closeModal();
+            App.showToast('Assignment created successfully', 'success');
+            FacultyViews.assignments();
+          } else {
+            App.showToast(result.error || 'Failed to upload assignment', 'error');
+          }
+        });
       });
     }, 0);
+  },
+
+  _viewSubmissions(asgnId) {
+    const asgn = DB.getAssignments().find(a => a.id === asgnId);
+    if (!asgn) return;
+    const subs = asgn.submissions || [];
+    
+    const renderSubmissionList = () => {
+      if (!subs.length) return '<p class="text-muted text-center p-4">No submissions received yet.</p>';
+      return `<table class="data-table">
+        <thead>
+          <tr>
+            <th>Student</th>
+            <th>Submitted At</th>
+            <th>Submission PDF</th>
+            <th>Grade / Score (Max ${asgn.maxMarks || 20})</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${subs.map(s => {
+            const stu = DB.getUserById(s.studentId);
+            return `<tr>
+              <td><strong>${stu ? stu.name : s.studentId}</strong></td>
+              <td>${formatDateTime(s.submittedAt)}</td>
+              <td>
+                ${s.content ? `<a href="${BASE_URL}/uploads/${s.content}" target="_blank" class="btn btn-ghost btn-sm">📄 Open PDF</a>` : '-'}
+              </td>
+              <td>
+                <div class="flex items-center gap-2">
+                  <input type="number" class="form-input" style="width:70px" id="score-${s.studentId}" value="${s.score || ''}" min="0" max="${asgn.maxMarks || 20}"/>
+                  <button class="btn btn-primary btn-sm" onclick="FacultyViews._saveScore('${asgnId}', '${s.studentId}')">Save</button>
+                </div>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+    };
+
+    App.showModal(`Submissions for: ${asgn.title}`, `
+      <div class="table-wrap">${renderSubmissionList()}</div>
+    `, `<button class="btn btn-ghost" onclick="App.closeModal()">Close</button>`);
+  },
+
+  async _saveScore(asgnId, studentId) {
+    const scoreVal = parseInt(document.getElementById(`score-${studentId}`).value);
+    if (isNaN(scoreVal)) {
+      App.showToast('Please enter a valid numeric score', 'error');
+      return;
+    }
+    const asgn = DB.getAssignments().find(a => a.id === asgnId);
+    const maxMarks = asgn ? asgn.maxMarks || 20 : 20;
+
+    const res = await DB.scoreAssignment(asgnId, studentId, scoreVal, maxMarks);
+    if (res.success) {
+      App.showToast('Score updated successfully', 'success');
+    } else {
+      App.showToast(res.error || 'Failed to grade submission', 'error');
+    }
   },
 
   marksEntry() {
@@ -260,7 +537,7 @@ const FacultyViews = {
         </tbody></table>
         <button class="btn btn-primary mt-4" id="save-marks">Save Marks</button>
         ${existingMarks.length ? `<div class="divider"></div><h4>Existing Records</h4><table class="data-table mt-3"><thead><tr><th>Student</th><th>Exam</th><th>Marks</th><th>Max</th></tr></thead><tbody>
-          ${existingMarks.map(m => { const s = DB.getUserById(m.studentId); return `<tr><td>${s ? s.name : m.studentId}</td><td>${m.examType}</td><td>${m.marks}</td><td>${m.maxMarks}</td></tr>`; }).join('')}
+          ${existingMarks.map(m => { const s = DB.getUserById(m.studentId); return `<tr><td>${s ? s.name : m.studentId}</td><td>${m.examType}</td><td>${m.marksObtained}</td><td>${m.maxMarks}</td></tr>`; }).join('')}
         </tbody></table>` : ''}`;
     };
 
@@ -281,7 +558,7 @@ const FacultyViews = {
             let count = 0;
             document.querySelectorAll('[data-student]').forEach(inp => {
               const marks = parseInt(inp.value);
-              if (!isNaN(marks)) { DB.addMark({ id: genId('MK'), studentId: inp.dataset.student, subjectId: document.getElementById('mk-sub').value, examType: exam, marks, maxMarks: max, date: today() }); count++; }
+              if (!isNaN(marks)) { DB.addMark({ id: genId('MK'), studentId: inp.dataset.student, subjectId: document.getElementById('mk-sub').value, examType: exam, marksObtained: marks, maxMarks: max, date: today() }); count++; }
             });
             App.showToast(`${count} marks saved`, 'success');
             document.getElementById('mk-content').innerHTML = renderMarks(document.getElementById('mk-sub').value);

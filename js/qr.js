@@ -118,6 +118,10 @@ const QRScanner = {
           const result = QRManager.validate(code.data);
           if (result) {
             this.stop();
+            // Show toast notification
+            if (window.App && typeof App.showToast === 'function') {
+              App.showToast('QR code scanned successfully.', 'success');
+            }
             if (this.onResult) this.onResult(result);
             return;
           }

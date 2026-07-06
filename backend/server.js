@@ -8,6 +8,8 @@ const { pool, initDB } = require('./db');
 const bcrypt = require('bcryptjs');
 
 const app = express();
+const multer = require('multer');
+const upload = multer({ dest: path.join(__dirname, '..', 'uploads') });
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
@@ -51,7 +53,27 @@ app.get('/api/db-state', async (req, res) => {
     const assignments = [];
     for (const r of assignmentsRows) {
       const [subs] = await pool.query('SELECT * FROM assignment_submissions WHERE assignment_id=?', [r.id]);
-      assignments.push({ id: r.id, title: r.title, description: r.description, facultyId: r.faculty_id, subjectId: r.subject_id, batch: r.batch, dueDate: r.due_date, createdAt: r.created_at, submissions: subs.map(s => ({ studentId: s.student_id, content: s.content, submittedAt: s.submitted_at })) });
+      const [scores] = await pool.query('SELECT * FROM assignment_scores WHERE assignment_id=?', [r.id]);
+      assignments.push({ 
+        id: r.id, 
+        title: r.title, 
+        description: r.description, 
+        facultyId: r.faculty_id, 
+        subjectId: r.subject_id, 
+        batch: r.batch, 
+        dueDate: r.due_date, 
+        pdfPath: r.pdf_path,
+        createdAt: r.created_at, 
+        submissions: subs.map(s => {
+          const matchedScore = scores.find(sc => sc.student_id === s.student_id);
+          return {
+            studentId: s.student_id,
+            content: s.content,
+            submittedAt: s.submitted_at,
+            score: matchedScore ? matchedScore.score : null
+          };
+        }) 
+      });
     }
     const [marks] = await pool.query('SELECT * FROM marks');
     const [leaveRequests] = await pool.query('SELECT * FROM leave_requests');
@@ -385,6 +407,119 @@ app.post('/api/faculty-attendance', async (req, res) => {
 //  ASSIGNMENTS
 // ════════════════════════════════════════════════════════════
 
+// New endpoint for QR attendance logging (single scan)
+app.post('/api/attendance/scan', async (req, res) => {
+  try {
+    const { userId, role } = req.body; // Expected fields
+    const date = new Date().toISOString().split('T')[0];
+    if (!userId || !role) return res.status(400).json({ error: 'userId and role required' });
+    if (role === 'student') {
+      // Insert a generic attendance record for student (no subject context)
+      const id = genId('SA');
+      await pool.query('INSERT INTO student_attendance (id, student_id, subject_id, date, period, status, marked_by, timestamp) VALUES (?,?,?,?,?,?,?,NOW())', [id, userId, NULL, date, 0, 'present', 'qr',]);
+    } else if (role === 'faculty') {
+      const id = genId('FA');
+      await pool.query('INSERT INTO faculty_attendance (id, faculty_id, date, status, marked_by, timestamp) VALUES (?,?,?,?,?,NOW())', [id, userId, date, 'present', 'qr']);
+    } else {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+    res.json({ success: true });
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Update timetable entry (PUT)
+app.put('/api/timetable', async (req, res) => {
+  try {
+    const { id, batch, day, period, time, subjectId, facultyId, room } = req.body;
+    if (!id) return res.status(400).json({ error: 'Timetable entry id required' });
+    const fields = [];
+    const params = [];
+    if (batch !== undefined) { fields.push('batch=?'); params.push(batch); }
+    if (day !== undefined) { fields.push('day=?'); params.push(day); }
+    if (period !== undefined) { fields.push('period=?'); params.push(period); }
+    if (time !== undefined) { fields.push('time=?'); params.push(time); }
+    if (subjectId !== undefined) { fields.push('subject_id=?'); params.push(subjectId); }
+    if (facultyId !== undefined) { fields.push('faculty_id=?'); params.push(facultyId); }
+    if (room !== undefined) { fields.push('room=?'); params.push(room); }
+    if (fields.length === 0) return res.status(400).json({ error: 'No fields to update' });
+    params.push(id);
+    await pool.query(`UPDATE timetable SET ${fields.join(',')} WHERE id = ?`, params);
+    res.json({ success: true });
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Delete timetable entry (DELETE)
+app.delete('/api/timetable/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM timetable WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Assignment PDF upload (faculty)
+app.post('/api/assignments', upload.single('pdf'), async (req, res) => {
+  try {
+    const { title, description, facultyId, subjectId, batch, dueDate } = req.body;
+    const pdfPath = req.file ? req.file.filename : null;
+    const id = genId('ASG');
+    await pool.query('INSERT INTO assignments (id, title, description, faculty_id, subject_id, batch, due_date, pdf_path, created_at) VALUES (?,?,?,?,?,?,?, ?, CURDATE())', [id, title, description || '', facultyId, subjectId, batch, dueDate, pdfPath]);
+    res.json({ success: true, id });
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Student submission PDF upload
+app.post('/api/assignments/:id/submit', upload.single('pdf'), async (req, res) => {
+  try {
+    const { studentId } = req.body;
+    const contentPath = req.file ? req.file.filename : null;
+    await pool.query('DELETE FROM assignment_submissions WHERE assignment_id=? AND student_id=?', [req.params.id, studentId]);
+    await pool.query('INSERT INTO assignment_submissions (assignment_id, student_id, content, submitted_at) VALUES (?,?,?,NOW())', [req.params.id, studentId, contentPath]);
+    res.json({ success: true });
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Score assignment for a student
+app.patch('/api/assignments/:id/score', async (req, res) => {
+  try {
+    const { studentId, score } = req.body;
+    // Store scores in a separate table 'assignment_scores' (create if not exists)
+    await pool.query('INSERT INTO assignment_scores (assignment_id, student_id, score) VALUES (?,?,?) ON DUPLICATE KEY UPDATE score = VALUES(score)', [req.params.id, studentId, score]);
+    res.json({ success: true });
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get assignment results for a student
+app.get('/api/assignments/:id/result', async (req, res) => {
+  try {
+    const studentId = req.query.studentId;
+    const [rows] = await pool.query('SELECT score FROM assignment_scores WHERE assignment_id=? AND student_id=?', [req.params.id, studentId]);
+    if (rows.length === 0) return res.json({ score: null });
+    res.json({ score: rows[0].score });
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Continue with existing assignments routes
 app.get('/api/assignments', async (req, res) => {
   try {
     let sql = 'SELECT * FROM assignments WHERE 1=1'; const params = [];
@@ -396,29 +531,29 @@ app.get('/api/assignments', async (req, res) => {
     const result = [];
     for (const r of rows) {
       const [subs] = await pool.query('SELECT * FROM assignment_submissions WHERE assignment_id=?', [r.id]);
-      result.push({ id: r.id, title: r.title, description: r.description, facultyId: r.faculty_id, subjectId: r.subject_id, batch: r.batch, dueDate: r.due_date, createdAt: r.created_at, submissions: subs.map(s => ({ studentId: s.student_id, content: s.content, submittedAt: s.submitted_at })) });
+      const [scores] = await pool.query('SELECT * FROM assignment_scores WHERE assignment_id=?', [r.id]);
+      result.push({ 
+        id: r.id, 
+        title: r.title, 
+        description: r.description, 
+        facultyId: r.faculty_id, 
+        subjectId: r.subject_id, 
+        batch: r.batch, 
+        dueDate: r.due_date, 
+        pdfPath: r.pdf_path,
+        createdAt: r.created_at, 
+        submissions: subs.map(s => {
+          const matchedScore = scores.find(sc => sc.student_id === s.student_id);
+          return {
+            studentId: s.student_id,
+            content: s.content,
+            submittedAt: s.submitted_at,
+            score: matchedScore ? matchedScore.score : null
+          };
+        }) 
+      });
     }
     res.json(result);
-  } catch(e) { res.status(500).json({ error: 'Server error.' }); }
-});
-
-app.post('/api/assignments', async (req, res) => {
-  try {
-    const { title, description, facultyId, subjectId, batch, dueDate } = req.body;
-    const id = genId('ASG');
-    await pool.query('INSERT INTO assignments (id, title, description, faculty_id, subject_id, batch, due_date, created_at) VALUES (?,?,?,?,?,?,?,CURDATE())',
-      [id, title, description || '', facultyId, subjectId, batch, dueDate]);
-    res.json({ success: true, id });
-  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error.' }); }
-});
-
-app.post('/api/assignments/:id/submit', async (req, res) => {
-  try {
-    const { studentId, content } = req.body;
-    await pool.query('DELETE FROM assignment_submissions WHERE assignment_id=? AND student_id=?', [req.params.id, studentId]);
-    await pool.query('INSERT INTO assignment_submissions (assignment_id, student_id, content, submitted_at) VALUES (?,?,?,NOW())',
-      [req.params.id, studentId, content || '']);
-    res.json({ success: true });
   } catch(e) { console.error(e); res.status(500).json({ error: 'Server error.' }); }
 });
 
