@@ -22,6 +22,27 @@ const EMPTY_DB = {
 };
 
 let memoryDB = { ...EMPTY_DB };
+let _dbVersion = 0;
+let _syncCallbacks = [];
+
+// Normalize strings to Title Case for case-insensitive comparisons
+function normalizeStr(s) {
+  if (!s || typeof s !== 'string') return s;
+  return s.trim().replace(/\s+/g, ' ')
+    .split(' ')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
+// Normalize data fields before saving
+function normalizeRecord(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const copy = { ...obj };
+  ['department', 'batch', 'name'].forEach(key => {
+    if (copy[key] && typeof copy[key] === 'string') copy[key] = normalizeStr(copy[key]);
+  });
+  return copy;
+}
 
 const DB = {
   // ── Periods ──
@@ -40,12 +61,22 @@ const DB = {
       const res = await fetch(`${BASE_URL}/api/db-state`);
       if (res.ok) {
         const data = await res.json();
+        const prev = JSON.stringify(memoryDB);
         memoryDB = { ...EMPTY_DB, ...data };
+        const curr = JSON.stringify(memoryDB);
+        if (prev !== curr) {
+          _dbVersion++;
+          _syncCallbacks.forEach(cb => { try { cb(_dbVersion); } catch(e) { console.warn('Sync callback error:', e); } });
+        }
       }
     } catch (e) {
       console.warn('[CStat DB] Offline mode or server disconnected.', e);
     }
   },
+
+  // Register/unregister sync callbacks for live re-rendering
+  onSync(cb) { _syncCallbacks.push(cb); },
+  offSync(cb) { _syncCallbacks = _syncCallbacks.filter(c => c !== cb); },
 
   get() { return memoryDB; },
 
@@ -75,22 +106,24 @@ const DB = {
   getUserByEmail(email) { return this.getUsers().find(u => u.email === email) || null; },
   authenticate(id, password) { return this.getUsers().find(u => u.id === id) || null; },
   addUser(user) {
+    const normalized = normalizeRecord(user);
     const db = this.get();
-    db.users.push(user);
+    db.users.push(normalized);
     fetch(`${BASE_URL}/api/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(user)
+      body: JSON.stringify(normalized)
     }).catch(err => console.error('[CStat DB] Error saving user:', err));
   },
   updateUser(id, updates) {
+    const normalized = normalizeRecord(updates);
     const db = this.get();
     const idx = db.users.findIndex(u => u.id === id);
-    if (idx !== -1) db.users[idx] = { ...db.users[idx], ...updates };
+    if (idx !== -1) db.users[idx] = { ...db.users[idx], ...normalized };
     fetch(`${BASE_URL}/api/users/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates)
+      body: JSON.stringify(normalized)
     }).catch(err => console.error('[CStat DB] Error updating user:', err));
   },
   deleteUser(id) {
@@ -104,37 +137,39 @@ const DB = {
   getSubjects(filter = {}) {
     let subjects = this.get().subjects || [];
     if (filter.facultyId) subjects = subjects.filter(s => s.facultyId === filter.facultyId);
-    if (filter.batch) subjects = subjects.filter(s => s.batch === filter.batch);
-    if (filter.department) subjects = subjects.filter(s => s.department === filter.department);
+    if (filter.batch) subjects = subjects.filter(s => normalizeStr(s.batch) === normalizeStr(filter.batch));
+    if (filter.department) subjects = subjects.filter(s => normalizeStr(s.department) === normalizeStr(filter.department));
     return subjects;
   },
   getSubjectById(id) { return this.getSubjects().find(s => s.id === id); },
   addSubject(subject) {
+    const normalized = normalizeRecord(subject);
     const db = this.get();
-    db.subjects.push(subject);
+    db.subjects.push(normalized);
     fetch(`${BASE_URL}/api/subjects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(subject)
+      body: JSON.stringify(normalized)
     }).catch(err => console.error('[CStat DB] Error saving subject:', err));
   },
 
   // ── Timetable ──
   getTimetable(filter = {}) {
     let tt = this.get().timetable || [];
-    if (filter.batch) tt = tt.filter(t => t.batch === filter.batch);
+    if (filter.batch) tt = tt.filter(t => normalizeStr(t.batch) === normalizeStr(filter.batch));
     if (filter.day) tt = tt.filter(t => t.day === filter.day);
     if (filter.facultyId) tt = tt.filter(t => t.facultyId === filter.facultyId);
     if (filter.period !== undefined) tt = tt.filter(t => t.period == filter.period);
     return tt;
   },
   addTimetable(entry) {
+    const normalized = normalizeRecord(entry);
     const db = this.get();
-    db.timetable.push(entry);
+    db.timetable.push(normalized);
     fetch(`${BASE_URL}/api/timetable`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(entry)
+      body: JSON.stringify(normalized)
     }).catch(err => console.error('[CStat DB] Error saving timetable:', err));
   },
   updateTimetable(id, updates) {
@@ -215,7 +250,7 @@ const DB = {
   getAssignments(filter = {}) {
     let asgn = this.get().assignments || [];
     if (filter.facultyId) asgn = asgn.filter(a => a.facultyId === filter.facultyId);
-    if (filter.batch) asgn = asgn.filter(a => a.batch === filter.batch);
+    if (filter.batch) asgn = asgn.filter(a => normalizeStr(a.batch) === normalizeStr(filter.batch));
     if (filter.subjectId) asgn = asgn.filter(a => a.subjectId === filter.subjectId);
     return asgn;
   },
@@ -360,13 +395,41 @@ const DB = {
   // ── Departments ──
   getDepartments() { return this.get().departments || []; },
   addDepartment(dept) {
+    const normalized = normalizeRecord(dept);
     const db = this.get();
-    db.departments.push(dept);
+    db.departments.push(normalized);
     fetch(`${BASE_URL}/api/departments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(dept)
+      body: JSON.stringify(normalized)
     }).catch(err => console.error('[CStat DB] Error saving department:', err));
+  },
+  updateDepartment(id, updates) {
+    const db = this.get();
+    const idx = db.departments.findIndex(d => d.id === id);
+    if (idx !== -1) {
+      db.departments[idx] = { ...db.departments[idx], ...updates };
+      fetch(`${BASE_URL}/api/departments/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      }).catch(err => console.error('[CStat DB] Error updating department:', err));
+    }
+  },
+
+  // ── Institutions ──
+  getInstitutions() { return this.get().institutions || []; },
+  updateInstitution(id, updates) {
+    const db = this.get();
+    const idx = db.institutions.findIndex(i => i.id === id);
+    if (idx !== -1) {
+      db.institutions[idx] = { ...db.institutions[idx], ...updates };
+      fetch(`${BASE_URL}/api/institutions/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      }).catch(err => console.error('[CStat DB] Error updating institution:', err));
+    }
   },
 
   // ── Student Attendance Stats ──

@@ -179,12 +179,45 @@ const App = {
         sel.innerHTML = insts.length ? insts.map(i => `<option value="${i.id}">${i.name}</option>`).join('') : '<option value="">No institutions registered yet</option>';
       }
 
-      // Role selector handling
       const roleRadios = document.getElementsByName('reg-role');
       const yearGroup = document.getElementById('reg-year-group');
       const posGroup = document.getElementById('reg-pos-group');
+      const deptGroup = document.getElementById('reg-dept-group');
       const adminFields = document.getElementById('reg-admin-fields');
       const memberFields = document.getElementById('reg-member-fields');
+
+      const deptSelect = document.getElementById('reg-dept');
+      const batchSelect = document.getElementById('reg-year');
+      const posSelect = document.getElementById('reg-pos');
+      const instSelect = document.getElementById('reg-inst-select');
+
+      const populateDynamicFields = () => {
+        const instId = instSelect.value;
+        const role = document.querySelector('input[name="reg-role"]:checked').value;
+        if (role === 'admin') return;
+
+        const depts = DB.getDepartments().filter(d => d.institutionId === instId);
+        deptSelect.innerHTML = depts.length ? 
+          '<option value="">Select Department...</option>' + depts.map(d => `<option value="${d.name}">${d.name}</option>`).join('') :
+          '<option value="">No departments available</option>';
+
+        const inst = DB.getInstitutions().find(i => i.id === instId);
+        const positions = inst && inst.facultyPositions ? inst.facultyPositions : ['Professor', 'Assistant Professor', 'HOD'];
+        posSelect.innerHTML = '<option value="">Select Position...</option>' + positions.map(p => `<option value="${p}">${p}</option>`).join('');
+      };
+
+      const populateBatches = () => {
+        const deptName = deptSelect.value;
+        const dept = DB.getDepartments().find(d => d.name === deptName);
+        if (dept && dept.batches && dept.batches.length) {
+          batchSelect.innerHTML = '<option value="">Select Batch...</option>' + dept.batches.map(b => `<option value="${b}">${b}</option>`).join('');
+        } else {
+          batchSelect.innerHTML = '<option value="">No batches available</option>';
+        }
+      };
+
+      if (instSelect) instSelect.addEventListener('change', populateDynamicFields);
+      if (deptSelect) deptSelect.addEventListener('change', populateBatches);
 
       function updateFormVisibility() {
         const selected = document.querySelector('input[name="reg-role"]:checked').value;
@@ -193,21 +226,28 @@ const App = {
           memberFields.style.display = 'none';
           yearGroup.style.display = 'none';
           posGroup.style.display = 'none';
-          document.getElementById('reg-year').required = false;
-          document.getElementById('reg-pos').required = false;
+          deptGroup.style.display = 'none';
+          batchSelect.required = false;
+          posSelect.required = false;
+          deptSelect.required = false;
         } else {
           adminFields.style.display = 'none';
           memberFields.style.display = 'block';
+          deptGroup.style.display = 'block';
+          deptSelect.required = true;
+          populateDynamicFields();
+          populateBatches();
+          
           if (selected === 'student') {
             yearGroup.style.display = 'block';
             posGroup.style.display = 'none';
-            document.getElementById('reg-year').required = true;
-            document.getElementById('reg-pos').required = false;
+            batchSelect.required = true;
+            posSelect.required = false;
           } else if (selected === 'faculty') {
             yearGroup.style.display = 'none';
             posGroup.style.display = 'block';
-            document.getElementById('reg-year').required = false;
-            document.getElementById('reg-pos').required = true;
+            batchSelect.required = false;
+            posSelect.required = true;
           }
         }
       }
@@ -338,6 +378,7 @@ const App = {
           { route: 'faculty-scan-student', label: 'Mark Student Attendance', icon: 'icon-scan' },
         ]},
         { title: 'Academics', items: [
+          { route: 'faculty-users', label: 'Manage Students', icon: 'icon-users' },
           { route: 'faculty-timetable', label: 'Timetable', icon: 'icon-calendar' },
           { route: 'faculty-class-attendance', label: 'Class Attendance', icon: 'icon-check' },
           { route: 'faculty-assignments', label: 'Assignments', icon: 'icon-file' },
@@ -417,6 +458,8 @@ const App = {
     document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
     const activeNav = document.getElementById('nav-' + route);
     if (activeNav) activeNav.classList.add('active');
+    
+    this.currentRoute = route;
 
     // Close mobile sidebar
     document.getElementById('sidebar').classList.remove('mobile-open');
@@ -437,6 +480,7 @@ const App = {
       'admin-profile':            () => AdminViews.profile(),
       // Faculty
       'faculty-dashboard':        () => FacultyViews.dashboard(),
+      'faculty-users':            () => FacultyViews.manageUsers(),
       'faculty-myqr':             () => FacultyViews.myCode(),
       'faculty-scan-student':     () => FacultyViews.markAttendanceList(),
       'faculty-timetable':        () => FacultyViews.timetable(),
@@ -472,6 +516,7 @@ const App = {
       'admin-reports': 'Reports & Analytics',
       'admin-profile': 'My Profile',
       'faculty-dashboard': 'Faculty Dashboard',
+      'faculty-users': 'Manage Students',
       'faculty-myqr': 'My Codes',
       'faculty-scan-student': 'Mark Student Attendance',
       'faculty-timetable': 'My Timetable',
@@ -574,6 +619,13 @@ const App = {
   // ─── Init ────────────────────────────────────────────────
   async init() {
     await DB.init();
+
+    DB.onSync((ver) => {
+      // Re-render current view if data changed
+      if (this.currentRoute && document.getElementById('app-page').style.display !== 'none') {
+        this.navigate(this.currentRoute);
+      }
+    });
 
     // Try restoring session
     if (this.restoreSession()) {

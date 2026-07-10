@@ -141,15 +141,19 @@
           <label class="form-label" for="reg-dept">Department</label>
           <div class="input-icon-wrap">
             <span class="icon-book input-icon"></span>
-            <input type="text" class="form-input" id="reg-dept" placeholder="e.g. Computer Science" />
+            <select class="form-select" id="reg-dept" required style="width:100%">
+              <option value="">Select Department...</option>
+            </select>
           </div>
         </div>
 
         <div class="form-group" id="reg-year-group">
-          <label class="form-label" for="reg-year">Year</label>
+          <label class="form-label" for="reg-year">Batch</label>
           <div class="input-icon-wrap">
             <span class="icon-calendar input-icon"></span>
-            <input type="text" class="form-input" id="reg-year" placeholder="e.g. 1st Year, 2nd Year" />
+            <select class="form-select" id="reg-year" style="width:100%">
+              <option value="">Select Batch...</option>
+            </select>
           </div>
         </div>
 
@@ -157,7 +161,9 @@
           <label class="form-label" for="reg-pos">Position</label>
           <div class="input-icon-wrap">
             <span class="icon-person input-icon"></span>
-            <input type="text" class="form-input" id="reg-pos" placeholder="e.g. Assistant Professor, HOD" />
+            <select class="form-select" id="reg-pos" style="width:100%">
+              <option value="">Select Position...</option>
+            </select>
           </div>
         </div>
 

@@ -36,6 +36,7 @@ async function initDB() {
   try { await pgPool.query('ALTER TABLE assignments ADD COLUMN pdf_path VARCHAR(255) DEFAULT NULL'); } catch(e) {}
   try { await pgPool.query('ALTER TABLE faculty_attendance ADD COLUMN entry_time TIMESTAMP DEFAULT NULL'); } catch(e) {}
   try { await pgPool.query('ALTER TABLE faculty_attendance ADD COLUMN exit_time TIMESTAMP DEFAULT NULL'); } catch(e) {}
+  try { await pgPool.query('ALTER TABLE institutions ADD COLUMN faculty_positions JSON DEFAULT NULL'); } catch(e) {}
   try { await pgPool.query(`CREATE TABLE IF NOT EXISTS assignment_scores (
     assignment_id VARCHAR(50) NOT NULL,
     student_id VARCHAR(50) NOT NULL,

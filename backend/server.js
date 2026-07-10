@@ -15,6 +15,27 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// ─── Normalization Middleware ────────────────────────────────
+// Title-case department, batch, name fields for case-insensitive consistency
+function titleCase(s) {
+  if (!s || typeof s !== 'string') return s;
+  return s.trim().replace(/\s+/g, ' ')
+    .split(' ')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
+app.use((req, res, next) => {
+  if ((req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') && req.body && typeof req.body === 'object') {
+    ['department', 'batch'].forEach(key => {
+      if (req.body[key] && typeof req.body[key] === 'string') {
+        req.body[key] = titleCase(req.body[key]);
+      }
+    });
+  }
+  next();
+});
+
 // Serve frontend static files from project root
 app.use(express.static(path.join(__dirname, '..')));
 
@@ -22,6 +43,46 @@ app.use(express.static(path.join(__dirname, '..')));
 function genId(prefix) {
   return prefix + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
 }
+
+// ─── ADMIN: WIPE DATABASE ────────────────────────────────────
+app.post('/api/admin/reset', async (req, res) => {
+  // Simple auth for the reset endpoint to prevent accidental hits
+  const { secret } = req.body;
+  if (secret !== 'WIPE_DB_CONFIRM') {
+    return res.status(403).json({ error: 'Unauthorized wipe attempt' });
+  }
+
+  console.log('[API] Triggering complete database reset...');
+  try {
+    const tables = [
+      'class_materials',
+      'assignment_scores',
+      'assignment_submissions',
+      'assignments',
+      'faculty_attendance',
+      'student_attendance',
+      'timetable',
+      'subjects',
+      'departments',
+      'users',
+      'institutions'
+    ];
+
+    for (const table of tables) {
+      try {
+        await pool.query(`TRUNCATE TABLE ${table} CASCADE`);
+      } catch (err) {
+        if (err.code !== '42P01') {
+          console.error(`Error truncating ${table}:`, err.message);
+        }
+      }
+    }
+    res.json({ message: 'Database wiped successfully.' });
+  } catch (error) {
+    console.error('Wipe error:', error);
+    res.status(500).json({ error: 'Failed to wipe database' });
+  }
+});
 
 // ─── Email Validation ───────────────────────────────────────
 function isValidEmail(email) {
@@ -81,7 +142,7 @@ app.get('/api/db-state', async (req, res) => {
     const [departments] = await pool.query('SELECT * FROM departments');
 
     res.json({
-      institutions: institutions.map(i => ({ id: i.id, name: i.name, createdAt: i.created_at })),
+      institutions: institutions.map(i => ({ id: i.id, name: i.name, createdAt: i.created_at, facultyPositions: i.faculty_positions || [] })),
       users: users.map(u => ({ id: u.id, institutionId: u.institution_id, role: u.role, name: u.name, email: u.email, phone: u.phone, department: u.department, avatar: u.avatar, batch: u.batch, rollNo: u.roll_no, year: u.year, position: u.position, joined: u.joined })),
       subjects: subjects.map(s => ({ id: s.id, name: s.name, code: s.code, facultyId: s.faculty_id, department: s.department, batch: s.batch })),
       timetable: timetable.map(t => ({ id: t.id, batch: t.batch, day: t.day, period: t.period, time: t.time, subjectId: t.subject_id, facultyId: t.faculty_id, room: t.room })),
@@ -210,8 +271,18 @@ app.post('/api/auth/register', async (req, res) => {
 app.get('/api/institutions', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM institutions ORDER BY name');
-    res.json(rows.map(r => ({ id: r.id, name: r.name, createdAt: r.created_at })));
+    res.json(rows.map(r => ({ id: r.id, name: r.name, createdAt: r.created_at, facultyPositions: r.faculty_positions || [] })));
   } catch(e) { res.status(500).json({ error: 'Server error.' }); }
+});
+
+app.put('/api/institutions/:id', async (req, res) => {
+  try {
+    const { facultyPositions } = req.body;
+    if (facultyPositions !== undefined) {
+      await pool.query('UPDATE institutions SET faculty_positions = ? WHERE id = ?', [JSON.stringify(facultyPositions), req.params.id]);
+    }
+    res.json({ success: true });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error.' }); }
 });
 
 // ════════════════════════════════════════════════════════════
@@ -293,6 +364,20 @@ app.post('/api/departments', async (req, res) => {
     await pool.query('INSERT INTO departments (id, institution_id, name, head, batches) VALUES (?,?,?,?,?)',
       [id, institutionId || null, name, head || null, JSON.stringify(batches || [])]);
     res.json({ success: true, id });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error.' }); }
+});
+
+app.put('/api/departments/:id', async (req, res) => {
+  try {
+    const updates = req.body;
+    const fields = []; const params = [];
+    if (updates.name !== undefined) { fields.push('name=?'); params.push(updates.name); }
+    if (updates.head !== undefined) { fields.push('head=?'); params.push(updates.head); }
+    if (updates.batches !== undefined) { fields.push('batches=?'); params.push(JSON.stringify(updates.batches)); }
+    if (fields.length === 0) return res.json({ success: true });
+    params.push(req.params.id);
+    await pool.query(`UPDATE departments SET ${fields.join(', ')} WHERE id = ?`, params);
+    res.json({ success: true });
   } catch(e) { console.error(e); res.status(500).json({ error: 'Server error.' }); }
 });
 

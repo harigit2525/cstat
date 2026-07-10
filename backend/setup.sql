@@ -6,7 +6,8 @@
 CREATE TABLE IF NOT EXISTS institutions (
   id VARCHAR(50) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
-  created_at DATE NOT NULL
+  created_at DATE NOT NULL,
+  faculty_positions JSON DEFAULT NULL
 );
 
 -- Users (Admin, Faculty, Student)

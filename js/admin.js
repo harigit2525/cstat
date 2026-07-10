@@ -64,7 +64,13 @@ const AdminViews = {
     };
 
     document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn">
-      <div class="page-header"><h2>Manage Users</h2><div class="page-header-actions"><button class="btn btn-primary" id="add-user-btn"><span class="icon-add"></span> Add User</button></div></div>
+      <div class="page-header">
+        <h2>Manage Users</h2>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" id="manage-pos-btn" style="margin-right:8px"><span class="icon-person"></span> Manage Positions</button>
+          <button class="btn btn-primary" id="add-user-btn"><span class="icon-add"></span> Add User</button>
+        </div>
+      </div>
       <div class="glass-card mb-3" style="border-left:3px solid var(--primary)"><div class="card-body" style="font-size:0.85rem;padding:10px 16px">
         <strong>ℹ Batch Matching:</strong> Student <strong>Batch</strong> must exactly match the Subject's <strong>Batch</strong> for attendance marking to work. Use the ✏️ edit button to update each student's batch.
       </div></div>
@@ -79,21 +85,65 @@ const AdminViews = {
         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
         btn.classList.add('active'); document.getElementById(btn.dataset.tab).classList.add('active');
       }));
-      document.getElementById('add-user-btn').addEventListener('click', () => AdminViews._addUserModal());
+      document.getElementById('add-user-btn').addEventListener('click', () => this._addUserModal());
+      document.getElementById('manage-pos-btn').addEventListener('click', () => this._managePositionsModal());
+    }, 0);
+  },
+
+  _managePositionsModal() {
+    const inst = DB.getInstitutions().find(i => i.id === App.currentUser.institutionId);
+    if (!inst) return App.showToast('Institution not found', 'error');
+    const positions = inst.facultyPositions || ['Professor', 'Assistant Professor', 'HOD'];
+
+    App.showModal('Manage Faculty Positions', `
+      <div class="form-group">
+        <label class="form-label">Positions (Comma-separated)</label>
+        <input class="form-input" id="pos-input" value="${positions.join(', ')}" required />
+        <small class="text-muted">These will be available as options during Faculty Registration.</small>
+      </div>
+    `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="pos-save">Save</button>`);
+
+    setTimeout(() => {
+      document.getElementById('pos-save').addEventListener('click', () => {
+        const val = document.getElementById('pos-input').value.trim();
+        if (!val) return App.showToast('Please enter at least one position', 'error');
+        
+        const updated = val.split(',').map(s => s.trim()).filter(Boolean);
+        DB.updateInstitution(inst.id, { facultyPositions: updated });
+        App.closeModal();
+        App.showToast('Positions updated', 'success');
+      });
     }, 0);
   },
 
   _addUserModal() {
     const depts = DB.getDepartments();
+    const inst = DB.getInstitutions().find(i => i.id === App.currentUser.institutionId);
+    const positions = inst && inst.facultyPositions ? inst.facultyPositions : ['Professor', 'Assistant Professor', 'HOD'];
+
     App.showModal('Add New User', `
       <div class="form-group"><label class="form-label">Role</label><select class="form-select" id="mu-role"><option value="student">Student</option><option value="faculty">Faculty</option></select></div>
       <div class="form-row"><div class="form-group"><label class="form-label">Name</label><input class="form-input" id="mu-name" required/></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" id="mu-email" type="email"/></div></div>
       <div class="form-row"><div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="mu-phone"/></div><div class="form-group"><label class="form-label">Password</label><input class="form-input" id="mu-password" type="password"/></div></div>
-      <div class="form-group"><label class="form-label">Department</label><select class="form-select" id="mu-dept">${depts.map(d => `<option>${d.name}</option>`).join('')}</select></div>
-      <div id="mu-stu-fields"><div class="form-row"><div class="form-group"><label class="form-label">Batch</label><input class="form-input" id="mu-batch"/></div><div class="form-group"><label class="form-label">Roll No</label><input class="form-input" id="mu-rollno"/></div></div></div>
+      <div class="form-group"><label class="form-label">Department</label><select class="form-select" id="mu-dept"><option value="">Select Dept</option>${depts.map(d => `<option value="${d.name}">${d.name}</option>`).join('')}</select></div>
+      <div id="mu-fac-fields" style="display:none;"><div class="form-group"><label class="form-label">Position</label><select class="form-select" id="mu-pos"><option value="">Select Position</option>${positions.map(p => `<option value="${p}">${p}</option>`).join('')}</select></div></div>
+      <div id="mu-stu-fields"><div class="form-row"><div class="form-group"><label class="form-label">Batch</label><select class="form-select" id="mu-batch"><option value="">Select Batch</option></select></div><div class="form-group"><label class="form-label">Roll No</label><input class="form-input" id="mu-rollno"/></div></div></div>
     `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="mu-save">Save</button>`);
+    
     setTimeout(() => {
-      document.getElementById('mu-role').addEventListener('change', function(){ document.getElementById('mu-stu-fields').style.display = this.value === 'student' ? 'block' : 'none'; });
+      const deptsData = DB.getDepartments();
+      const updateBatches = () => {
+        const dName = document.getElementById('mu-dept').value;
+        const dept = deptsData.find(d => d.name === dName);
+        const sel = document.getElementById('mu-batch');
+        if (dept && dept.batches) sel.innerHTML = '<option value="">Select Batch</option>' + dept.batches.map(b => `<option value="${b}">${b}</option>`).join('');
+        else sel.innerHTML = '<option value="">No batches</option>';
+      };
+      document.getElementById('mu-dept').addEventListener('change', updateBatches);
+      document.getElementById('mu-role').addEventListener('change', function(){ 
+        document.getElementById('mu-stu-fields').style.display = this.value === 'student' ? 'block' : 'none'; 
+        document.getElementById('mu-fac-fields').style.display = this.value === 'faculty' ? 'block' : 'none'; 
+      });
       document.getElementById('mu-save').addEventListener('click', () => {
         const role = document.getElementById('mu-role').value;
         const name = document.getElementById('mu-name').value.trim();
@@ -104,10 +154,10 @@ const AdminViews = {
         
         const id = genId(role === 'student' ? 'STU' : 'FAC');
         const user = { id, role, name, avatar: name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase(),
-          email: email, phone: document.getElementById('mu-phone').value || '',
+          email: email, phone: document.getElementById('mu-phone').value || '', institutionId: App.currentUser.institutionId,
           department: document.getElementById('mu-dept').value, password: document.getElementById('mu-password').value || (role === 'student' ? 'student123' : 'faculty123'), joined: today() };
         if (role === 'student') { user.batch = document.getElementById('mu-batch').value || ''; user.rollNo = document.getElementById('mu-rollno').value || ''; user.year = 1; }
-        else { user.subjects = []; }
+        else { user.position = document.getElementById('mu-pos').value || ''; }
         DB.addUser(user); App.closeModal(); App.showToast(`${name} added`, 'success'); AdminViews.manageUsers();
       });
     }, 0);
@@ -115,17 +165,34 @@ const AdminViews = {
 
   _editUser(userId) {
     const u = DB.getUserById(userId); if (!u) return;
+    const depts = DB.getDepartments();
+    const inst = DB.getInstitutions().find(i => i.id === App.currentUser.institutionId);
+    const positions = inst && inst.facultyPositions ? inst.facultyPositions : ['Professor', 'Assistant Professor', 'HOD'];
+
     App.showModal('Edit User', `
       <div class="form-group"><label class="form-label">Name</label><input class="form-input" id="eu-name" value="${u.name}"/></div>
       <div class="form-row"><div class="form-group"><label class="form-label">Email</label><input class="form-input" id="eu-email" value="${u.email || ''}"/></div><div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="eu-phone" value="${u.phone || ''}"/></div></div>
-      <div class="form-group"><label class="form-label">Department</label><input class="form-input" id="eu-dept" value="${u.department}"/></div>
-      ${u.role === 'student' ? `<div class="form-row"><div class="form-group"><label class="form-label">Batch</label><input class="form-input" id="eu-batch" value="${u.batch || ''}"/></div><div class="form-group"><label class="form-label">Roll No</label><input class="form-input" id="eu-rollno" value="${u.rollNo || ''}"/></div></div>` : ''}
+      <div class="form-group"><label class="form-label">Department</label><select class="form-select" id="eu-dept">${depts.map(d => `<option value="${d.name}" ${u.department === d.name ? 'selected' : ''}>${d.name}</option>`).join('')}</select></div>
+      ${u.role === 'student' ? `<div class="form-row"><div class="form-group"><label class="form-label">Batch</label><select class="form-select" id="eu-batch"></select></div><div class="form-group"><label class="form-label">Roll No</label><input class="form-input" id="eu-rollno" value="${u.rollNo || ''}"/></div></div>` : ''}
+      ${u.role === 'faculty' ? `<div class="form-group"><label class="form-label">Position</label><select class="form-select" id="eu-pos">${positions.map(p => `<option value="${p}" ${u.position === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>` : ''}
     `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="eu-save">Update</button>`);
     setTimeout(() => {
+      const updateBatches = () => {
+        if(u.role !== 'student') return;
+        const dName = document.getElementById('eu-dept').value;
+        const dept = depts.find(d => d.name === dName);
+        const sel = document.getElementById('eu-batch');
+        if (dept && dept.batches) sel.innerHTML = '<option value="">Select Batch</option>' + dept.batches.map(b => `<option value="${b}" ${u.batch === b ? 'selected' : ''}>${b}</option>`).join('');
+        else sel.innerHTML = '<option value="">No batches</option>';
+      };
+      document.getElementById('eu-dept').addEventListener('change', updateBatches);
+      updateBatches();
+
       document.getElementById('eu-save').addEventListener('click', () => {
         const updates = { name: document.getElementById('eu-name').value.trim(), email: document.getElementById('eu-email').value, phone: document.getElementById('eu-phone').value, department: document.getElementById('eu-dept').value };
         updates.avatar = updates.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
         if (u.role === 'student') { updates.batch = document.getElementById('eu-batch').value; updates.rollNo = document.getElementById('eu-rollno').value; }
+        if (u.role === 'faculty') { updates.position = document.getElementById('eu-pos').value; }
         DB.updateUser(userId, updates); App.closeModal(); App.showToast('User updated', 'success'); AdminViews.manageUsers();
       });
     }, 0);
