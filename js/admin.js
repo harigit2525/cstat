@@ -120,15 +120,18 @@ const AdminViews = {
     const depts = DB.getDepartments();
     const inst = DB.getInstitutions().find(i => i.id === App.currentUser.institutionId);
     const positions = inst && inst.facultyPositions ? inst.facultyPositions : ['Professor', 'Assistant Professor', 'HOD'];
+    const role = 'student';
 
-    App.showModal('Add New User', `
+    App.showModal('Add User', `
+      <div class="form-group"><label class="form-label">User ID (Custom)</label><input class="form-input" id="mu-id" required placeholder="e.g. STU123"/></div>
       <div class="form-group"><label class="form-label">Role</label><select class="form-select" id="mu-role"><option value="student">Student</option><option value="faculty">Faculty</option></select></div>
-      <div class="form-row"><div class="form-group"><label class="form-label">Name</label><input class="form-input" id="mu-name" required/></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" id="mu-email" type="email"/></div></div>
-      <div class="form-row"><div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="mu-phone"/></div><div class="form-group"><label class="form-label">Password</label><input class="form-input" id="mu-password" type="password"/></div></div>
-      <div class="form-group"><label class="form-label">Department</label><select class="form-select" id="mu-dept"><option value="">Select Dept</option>${depts.map(d => `<option value="${d.name}">${d.name}</option>`).join('')}</select></div>
-      <div id="mu-fac-fields" style="display:none;"><div class="form-group"><label class="form-label">Position</label><select class="form-select" id="mu-pos"><option value="">Select Position</option>${positions.map(p => `<option value="${p}">${p}</option>`).join('')}</select></div></div>
-      <div id="mu-stu-fields"><div class="form-row"><div class="form-group"><label class="form-label">Batch</label><select class="form-select" id="mu-batch"><option value="">Select Batch</option></select></div><div class="form-group"><label class="form-label">Roll No</label><input class="form-input" id="mu-rollno"/></div></div></div>
-    `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="mu-save">Save</button>`);
+      <div class="form-group"><label class="form-label">Name</label><input class="form-input" id="mu-name" required placeholder="e.g. John Doe"/></div>
+      <div class="form-row"><div class="form-group"><label class="form-label">Email</label><input class="form-input" type="email" id="mu-email" placeholder="Optional"/></div><div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="mu-phone" placeholder="Optional"/></div></div>
+      <div class="form-group"><label class="form-label">Department</label><select class="form-select" id="mu-dept">${depts.map(d => `<option value="${d.name}">${d.name}</option>`).join('')}</select></div>
+      <div id="mu-fac-fields" style="display:none;"><div class="form-group"><label class="form-label">Position</label><select class="form-select" id="mu-pos">${positions.map(p => `<option value="${p}">${p}</option>`).join('')}</select></div></div>
+      <div id="mu-stu-fields"><div class="form-row"><div class="form-group"><label class="form-label">Batch</label><select class="form-select" id="mu-batch"></select></div><div class="form-group"><label class="form-label">Roll No</label><input class="form-input" id="mu-rollno" placeholder="Optional"/></div></div></div>
+      <div class="form-group mt-2"><label class="form-label">Password</label><input class="form-input" id="mu-password" type="text" required placeholder="e.g. Password@123"/></div>
+    `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="mu-save">Add</button>`);
     
     setTimeout(() => {
       const deptsData = DB.getDepartments();
@@ -140,22 +143,26 @@ const AdminViews = {
         else sel.innerHTML = '<option value="">No batches</option>';
       };
       document.getElementById('mu-dept').addEventListener('change', updateBatches);
+      updateBatches();
       document.getElementById('mu-role').addEventListener('change', function(){ 
         document.getElementById('mu-stu-fields').style.display = this.value === 'student' ? 'block' : 'none'; 
         document.getElementById('mu-fac-fields').style.display = this.value === 'faculty' ? 'block' : 'none'; 
       });
       document.getElementById('mu-save').addEventListener('click', () => {
         const role = document.getElementById('mu-role').value;
+        const idInput = document.getElementById('mu-id').value.trim();
         const name = document.getElementById('mu-name').value.trim();
         const email = document.getElementById('mu-email').value.trim();
+        const pw = document.getElementById('mu-password').value.trim();
         
+        if (!idInput) { App.showToast('User ID is required', 'error'); return; }
         if (!name) { App.showToast('Name is required', 'error'); return; }
+        if (!pw) { App.showToast('Password is required', 'error'); return; }
         if (email && !App.validateEmail(email)) { App.showToast('Please enter a valid email address.', 'error'); return; }
         
-        const id = genId(role === 'student' ? 'STU' : 'FAC');
-        const user = { id, role, name, avatar: name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase(),
+        const user = { id: idInput.toUpperCase(), role, name, avatar: name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase(),
           email: email, phone: document.getElementById('mu-phone').value || '', institutionId: App.currentUser.institutionId,
-          department: document.getElementById('mu-dept').value, password: document.getElementById('mu-password').value || (role === 'student' ? 'student123' : 'faculty123'), joined: today() };
+          department: document.getElementById('mu-dept').value, password: pw, joined: today() };
         if (role === 'student') { user.batch = document.getElementById('mu-batch').value || ''; user.rollNo = document.getElementById('mu-rollno').value || ''; user.year = 1; }
         else { user.position = document.getElementById('mu-pos').value || ''; }
         DB.addUser(user); App.closeModal(); App.showToast(`${name} added`, 'success'); AdminViews.manageUsers();
