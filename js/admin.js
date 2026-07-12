@@ -129,7 +129,7 @@ const AdminViews = {
       <div class="form-row"><div class="form-group"><label class="form-label">Email</label><input class="form-input" type="email" id="mu-email" placeholder="Optional"/></div><div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="mu-phone" placeholder="Optional"/></div></div>
       <div class="form-group"><label class="form-label">Department</label><select class="form-select" id="mu-dept">${depts.map(d => `<option value="${d.name}">${d.name}</option>`).join('')}</select></div>
       <div id="mu-fac-fields" style="display:none;"><div class="form-group"><label class="form-label">Position</label><select class="form-select" id="mu-pos">${positions.map(p => `<option value="${p}">${p}</option>`).join('')}</select></div></div>
-      <div id="mu-stu-fields"><div class="form-row"><div class="form-group"><label class="form-label">Batch</label><select class="form-select" id="mu-batch"></select></div><div class="form-group"><label class="form-label">Roll No</label><input class="form-input" id="mu-rollno" placeholder="Optional"/></div></div></div>
+      <div id="mu-stu-fields"><div class="form-row"><div class="form-group"><label class="form-label">Batch</label><select class="form-select" id="mu-batch"></select></div><div class="form-group"><label class="form-label">Roll No</label><input class="form-input" id="mu-rollno" placeholder="Optional"/></div></div><div class="form-group"><label class="form-label">Year</label><select class="form-select" id="mu-year"><option value="1">1st Year</option><option value="2">2nd Year</option><option value="3">3rd Year</option><option value="4">4th Year</option></select></div></div>
       <div class="form-group mt-2"><label class="form-label">Password</label><input class="form-input" id="mu-password" type="text" required placeholder="e.g. Password@123"/></div>
     `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="mu-save">Add</button>`);
     
@@ -163,7 +163,7 @@ const AdminViews = {
         const user = { id: idInput.toUpperCase(), role, name, avatar: name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase(),
           email: email, phone: document.getElementById('mu-phone').value || '', institutionId: App.currentUser.institutionId,
           department: document.getElementById('mu-dept').value, password: pw, joined: today() };
-        if (role === 'student') { user.batch = document.getElementById('mu-batch').value || ''; user.rollNo = document.getElementById('mu-rollno').value || ''; user.year = 1; }
+        if (role === 'student') { user.batch = document.getElementById('mu-batch').value || ''; user.rollNo = document.getElementById('mu-rollno').value || ''; user.year = parseInt(document.getElementById('mu-year').value) || 1; }
         else { user.position = document.getElementById('mu-pos').value || ''; }
         DB.addUser(user); App.closeModal(); App.showToast(`${name} added`, 'success'); AdminViews.manageUsers();
       });
@@ -599,20 +599,20 @@ const AdminViews = {
   _addTimetableModal() {
     const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const depts = DB.getDepartments();
-    const batches = depts.flatMap(d => d.batches || []);
     const faculty = DB.getUsers('faculty');
-    const subjects = DB.getSubjects();
+    const allSubjects = DB.getSubjects();
 
     App.showModal('Add Timetable Class', `
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Batch</label><select class="form-select" id="add-tt-batch" required>${batches.map(b => `<option>${b}</option>`).join('')}</select></div>
-        <div class="form-group"><label class="form-label">Day</label><select class="form-select" id="add-tt-day" required>${days.map(d => `<option>${d}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Department</label><select class="form-select" id="add-tt-dept" required><option value="">Select Department</option>${depts.map(d => `<option value="${d.name}">${d.name}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Batch</label><select class="form-select" id="add-tt-batch" required><option value="">Select Batch</option></select></div>
       </div>
       <div class="form-row">
+        <div class="form-group"><label class="form-label">Day</label><select class="form-select" id="add-tt-day" required>${days.map(d => `<option>${d}</option>`).join('')}</select></div>
         <div class="form-group"><label class="form-label">Period</label><select class="form-select" id="add-tt-period" required>${Array.from({length:8}, (_,i)=>`<option value="${i+1}">P${i+1}</option>`).join('')}</select></div>
-        <div class="form-group"><label class="form-label">Time Slot</label><input class="form-input" id="add-tt-time" required placeholder="e.g. 09:00 - 10:00"/></div>
       </div>
-      <div class="form-group"><label class="form-label">Subject</label><select class="form-select" id="add-tt-sub" required><option value="">Select Subject</option>${subjects.map(s => `<option value="${s.id}">${s.name} (${s.code})</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">Time Slot</label><input class="form-input" id="add-tt-time" required placeholder="e.g. 09:00 - 10:00"/></div>
+      <div class="form-group"><label class="form-label">Subject</label><select class="form-select" id="add-tt-sub" required><option value="">Select Department & Batch first</option></select></div>
       <div class="form-row">
         <div class="form-group"><label class="form-label">Faculty</label><select class="form-select" id="add-tt-fac" required><option value="">Select Faculty</option>${faculty.map(f => `<option value="${f.id}">${f.name}</option>`).join('')}</select></div>
         <div class="form-group"><label class="form-label">Room</label><input class="form-input" id="add-tt-room" required placeholder="e.g. Room 402"/></div>
@@ -620,7 +620,28 @@ const AdminViews = {
     `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="add-tt-save">Save</button>`);
 
     setTimeout(() => {
-      document.getElementById('add-tt-save').addEventListener('click', () => {
+      const updateBatches = () => {
+        const dName = document.getElementById('add-tt-dept').value;
+        const dept = depts.find(d => d.name === dName);
+        const batchSel = document.getElementById('add-tt-batch');
+        batchSel.innerHTML = '<option value="">Select Batch</option>' + (dept && dept.batches ? dept.batches.map(b => `<option value="${b}">${b}</option>`).join('') : '');
+        updateSubjects();
+      };
+      const updateSubjects = () => {
+        const dName = document.getElementById('add-tt-dept').value;
+        const bName = document.getElementById('add-tt-batch').value;
+        const subSel = document.getElementById('add-tt-sub');
+        const filtered = allSubjects.filter(s =>
+          (!dName || normalizeStr(s.department) === normalizeStr(dName)) &&
+          (!bName || normalizeStr(s.batch) === normalizeStr(bName))
+        );
+        subSel.innerHTML = '<option value="">Select Subject</option>' + filtered.map(s => `<option value="${s.id}">${s.name} (${s.code})</option>`).join('');
+      };
+      document.getElementById('add-tt-dept').addEventListener('change', updateBatches);
+      document.getElementById('add-tt-batch').addEventListener('change', updateSubjects);
+
+      document.getElementById('add-tt-save').addEventListener('click', async () => {
+        const dept = document.getElementById('add-tt-dept').value;
         const batch = document.getElementById('add-tt-batch').value;
         const day = document.getElementById('add-tt-day').value;
         const period = parseInt(document.getElementById('add-tt-period').value);
@@ -629,27 +650,33 @@ const AdminViews = {
         const facultyId = document.getElementById('add-tt-fac').value;
         const room = document.getElementById('add-tt-room').value.trim();
 
-        if (!batch || !day || !time || !subjectId || !facultyId || !room) {
+        if (!dept || !batch || !day || !time || !subjectId || !facultyId || !room) {
           App.showToast('Please fill all required fields', 'error');
           return;
         }
 
         const conflict = DB.getTimetable({ batch, day, period }).length > 0;
         if (conflict) {
-          App.showToast(`Conflict detected: Class already exists for Period P${period}`, 'error');
+          App.showToast(`Conflict detected: Class already exists for P${period} on ${day} for this batch`, 'error');
           return;
         }
 
-        DB.addTimetable({
-          id: genId('TT'),
-          batch,
-          day,
-          period,
-          time,
-          subjectId,
-          facultyId,
-          room
-        });
+        // Save to backend and use the backend-returned ID for consistency
+        try {
+          const res = await fetch(`${BASE_URL}/api/timetable`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ batch, day, period, time, subjectId, facultyId, room })
+          });
+          const data = await res.json();
+          if (!res.ok || data.error) { App.showToast(data.error || 'Failed to save class', 'error'); return; }
+          // Add to local memory with the server-assigned ID
+          const db = DB.get();
+          db.timetable.push({ id: data.id, batch, day, period, time, subjectId, facultyId, room });
+        } catch(e) {
+          App.showToast('Network error saving timetable', 'error'); return;
+        }
+
         App.closeModal();
         App.showToast('Class added to timetable', 'success');
         this.timetableView();

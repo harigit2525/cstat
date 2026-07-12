@@ -372,15 +372,16 @@ app.get('/api/users/:id', async (req, res) => {
 
 app.post('/api/users', async (req, res) => {
   try {
-    const { id, role, name, email, phone, department, password, avatar, batch, rollNo, institutionId } = req.body;
+    const { id, role, name, email, phone, department, password, avatar, batch, rollNo, year, position, institutionId } = req.body;
     const hashedPw = await bcrypt.hash(password || (role === 'student' ? 'Student@123' : 'Faculty@123'), 10);
     await pool.query(
-      'INSERT INTO users (id, institution_id, role, name, email, phone, department, password, avatar, batch, roll_no, joined) VALUES (?,?,?,?,?,?,?,?,?,?,?, CURDATE())',
-      [id, institutionId || '', role, name, email || '', phone || '', department || 'General', hashedPw, avatar || '', batch || null, rollNo || null]
+      'INSERT INTO users (id, institution_id, role, name, email, phone, department, password, plain_password, avatar, batch, roll_no, year, position, joined) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, CURDATE())',
+      [id, institutionId || '', role, name, email || '', phone || '', department || 'General', hashedPw, password || null, avatar || '', batch || null, rollNo || null, year || null, position || null]
     );
     res.json({ success: true });
   } catch(e) { console.error(e); res.status(500).json({ error: 'Server error.' }); }
 });
+
 
 app.put('/api/users/:id', async (req, res) => {
   try {
