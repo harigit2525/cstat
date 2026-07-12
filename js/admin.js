@@ -177,11 +177,13 @@ const AdminViews = {
     const positions = inst && inst.facultyPositions ? inst.facultyPositions : ['Professor', 'Assistant Professor', 'HOD'];
 
     App.showModal('Edit User', `
+      <div class="form-group"><label class="form-label">User ID</label><input class="form-input" id="eu-id" value="${u.id}" required placeholder="Custom User ID"/><small class="text-muted">Changing the ID will update all linked records.</small></div>
       <div class="form-group"><label class="form-label">Name</label><input class="form-input" id="eu-name" value="${u.name}"/></div>
       <div class="form-row"><div class="form-group"><label class="form-label">Email</label><input class="form-input" id="eu-email" value="${u.email || ''}"/></div><div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="eu-phone" value="${u.phone || ''}"/></div></div>
       <div class="form-group"><label class="form-label">Department</label><select class="form-select" id="eu-dept">${depts.map(d => `<option value="${d.name}" ${u.department === d.name ? 'selected' : ''}>${d.name}</option>`).join('')}</select></div>
       ${u.role === 'student' ? `<div class="form-row"><div class="form-group"><label class="form-label">Batch</label><select class="form-select" id="eu-batch"></select></div><div class="form-group"><label class="form-label">Roll No</label><input class="form-input" id="eu-rollno" value="${u.rollNo || ''}"/></div></div>` : ''}
       ${u.role === 'faculty' ? `<div class="form-group"><label class="form-label">Position</label><select class="form-select" id="eu-pos">${positions.map(p => `<option value="${p}" ${u.position === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>` : ''}
+      <div class="form-group mt-2"><label class="form-label">New Password <small class="text-muted">(leave blank to keep unchanged)</small></label><input class="form-input" id="eu-password" type="text" placeholder="Enter new password to change it"/></div>
     `, `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-primary" id="eu-save">Update</button>`);
     setTimeout(() => {
       const updateBatches = () => {
@@ -195,12 +197,38 @@ const AdminViews = {
       document.getElementById('eu-dept').addEventListener('change', updateBatches);
       updateBatches();
 
-      document.getElementById('eu-save').addEventListener('click', () => {
+      document.getElementById('eu-save').addEventListener('click', async () => {
+        const newId = document.getElementById('eu-id').value.trim().toUpperCase();
+        const newPw = document.getElementById('eu-password').value.trim();
+        if (!newId) { App.showToast('User ID cannot be empty', 'error'); return; }
+
         const updates = { name: document.getElementById('eu-name').value.trim(), email: document.getElementById('eu-email').value, phone: document.getElementById('eu-phone').value, department: document.getElementById('eu-dept').value };
         updates.avatar = updates.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
         if (u.role === 'student') { updates.batch = document.getElementById('eu-batch').value; updates.rollNo = document.getElementById('eu-rollno').value; }
         if (u.role === 'faculty') { updates.position = document.getElementById('eu-pos').value; }
-        DB.updateUser(userId, updates); App.closeModal(); App.showToast('User updated', 'success'); AdminViews.manageUsers();
+        if (newPw) updates.password = newPw;
+
+        // If ID changed, send a rename request first
+        if (newId !== userId) {
+          try {
+            const r = await fetch(`${BASE_URL}/api/users/${userId}/rename`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ newId })
+            });
+            const data = await r.json();
+            if (!r.ok || data.error) { App.showToast(data.error || 'ID change failed', 'error'); return; }
+            // Update local memory
+            const db = DB.get();
+            const idx = db.users.findIndex(x => x.id === userId);
+            if (idx !== -1) db.users[idx].id = newId;
+          } catch(e) { App.showToast('Network error changing ID', 'error'); return; }
+        }
+
+        DB.updateUser(newId, updates);
+        App.closeModal();
+        App.showToast('User updated', 'success');
+        AdminViews.manageUsers();
       });
     }, 0);
   },
@@ -429,7 +457,9 @@ const AdminViews = {
   announcements() {
     const anns = DB.getAnnouncements();
     document.getElementById('main-content').innerHTML = `<div class="animate-fadeIn"><div class="page-header"><h2>Announcements</h2><button class="btn btn-primary" id="add-ann-btn"><span class="icon-add"></span> New Announcement</button></div>
-      ${anns.map(a => { const p = DB.getUserById(a.postedBy); return `<div class="announcement-card priority-${a.priority}"><h4>${a.title}</h4><p class="announcement-body">${a.body}</p><div class="announcement-meta"><span>${formatDate(a.date)}</span><span>By ${p ? p.name : 'Admin'}</span><span class="status-badge ${a.priority}">${a.priority}</span><span class="status-badge">${a.audience}</span></div></div>`; }).join('') || '<div class="empty-state"><div class="empty-icon">📢</div><h3>No announcements</h3></div>'}
+      ${anns.map(a => { const p = DB.getUserById(a.postedBy); return `<div class="announcement-card priority-${a.priority}" style="position:relative">
+        <button class="btn btn-danger btn-sm" style="position:absolute;top:10px;right:10px;" onclick="AdminViews._deleteAnnouncement('${a.id}')">🗑️ Delete</button>
+        <h4>${a.title}</h4><p class="announcement-body">${a.body}</p><div class="announcement-meta"><span>${formatDate(a.date)}</span><span>By ${p ? p.name : 'Admin'}</span><span class="status-badge ${a.priority}">${a.priority}</span><span class="status-badge">${a.audience}</span></div></div>`; }).join('') || '<div class="empty-state"><div class="empty-icon">📢</div><h3>No announcements</h3></div>'}
     </div>`;
     setTimeout(() => {
       document.getElementById('add-ann-btn').addEventListener('click', () => {
@@ -443,6 +473,19 @@ const AdminViews = {
           DB.addAnnouncement({ id: genId('AN'), title, body: document.getElementById('ann-body').value, audience: document.getElementById('ann-aud').value, priority: document.getElementById('ann-pri').value, postedBy: App.currentUser.id, date: today() });
           App.closeModal(); App.showToast('Published', 'success'); AdminViews.announcements();
         }); }, 0);
+      });
+    }, 0);
+  },
+
+  _deleteAnnouncement(id) {
+    App.showModal('Delete Announcement', `<p>Are you sure you want to delete this announcement?</p><p class="text-danger mt-2">This cannot be undone.</p>`,
+      `<button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button><button class="btn btn-danger" id="del-ann-confirm">Delete</button>`);
+    setTimeout(() => {
+      document.getElementById('del-ann-confirm').addEventListener('click', () => {
+        DB.deleteAnnouncement(id);
+        App.closeModal();
+        App.showToast('Announcement deleted', 'success');
+        AdminViews.announcements();
       });
     }, 0);
   },

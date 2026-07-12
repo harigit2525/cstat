@@ -393,12 +393,48 @@ app.put('/api/users/:id', async (req, res) => {
     if (updates.avatar !== undefined) { fields.push('avatar=?'); params.push(updates.avatar); }
     if (updates.batch !== undefined) { fields.push('batch=?'); params.push(updates.batch); }
     if (updates.rollNo !== undefined) { fields.push('roll_no=?'); params.push(updates.rollNo); }
+    if (updates.position !== undefined) { fields.push('position=?'); params.push(updates.position); }
+    if (updates.password !== undefined) {
+      const hashedPw = await bcrypt.hash(updates.password, 10);
+      fields.push('password=?'); params.push(hashedPw);
+      fields.push('plain_password=?'); params.push(updates.password);
+    }
     if (fields.length === 0) return res.status(400).json({ error: 'No fields to update.' });
     params.push(req.params.id);
     await pool.query(`UPDATE users SET ${fields.join(',')} WHERE id = ?`, params);
     res.json({ success: true });
   } catch(e) { res.status(500).json({ error: 'Server error.' }); }
 });
+
+// Rename user ID — updates users table and all foreign key references
+app.post('/api/users/:id/rename', async (req, res) => {
+  const oldId = req.params.id;
+  const { newId } = req.body;
+  if (!newId || !newId.trim()) return res.status(400).json({ error: 'New ID is required.' });
+  const cleanId = newId.trim().toUpperCase();
+  try {
+    // Check new ID is not already taken
+    const [existing] = await pool.query('SELECT id FROM users WHERE id = ?', [cleanId]);
+    if (existing.length > 0) return res.status(409).json({ error: 'User ID already exists. Choose a different one.' });
+    // Update all foreign key references first
+    await pool.query('UPDATE student_attendance SET student_id=? WHERE student_id=?', [cleanId, oldId]);
+    await pool.query('UPDATE student_attendance SET marked_by=? WHERE marked_by=?', [cleanId, oldId]);
+    await pool.query('UPDATE faculty_attendance SET faculty_id=? WHERE faculty_id=?', [cleanId, oldId]);
+    await pool.query('UPDATE faculty_attendance SET marked_by=? WHERE marked_by=?', [cleanId, oldId]);
+    await pool.query('UPDATE subjects SET faculty_id=? WHERE faculty_id=?', [cleanId, oldId]);
+    await pool.query('UPDATE timetable SET faculty_id=? WHERE faculty_id=?', [cleanId, oldId]);
+    await pool.query('UPDATE assignments SET faculty_id=? WHERE faculty_id=?', [cleanId, oldId]);
+    await pool.query('UPDATE assignment_submissions SET student_id=? WHERE student_id=?', [cleanId, oldId]);
+    await pool.query('UPDATE assignment_scores SET student_id=? WHERE student_id=?', [cleanId, oldId]);
+    await pool.query('UPDATE leave_requests SET user_id=? WHERE user_id=?', [cleanId, oldId]);
+    await pool.query('UPDATE leave_requests SET reviewed_by=? WHERE reviewed_by=?', [cleanId, oldId]);
+    await pool.query('UPDATE announcements SET posted_by=? WHERE posted_by=?', [cleanId, oldId]);
+    // Now rename the user itself
+    await pool.query('UPDATE users SET id=? WHERE id=?', [cleanId, oldId]);
+    res.json({ success: true, newId: cleanId });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error renaming user.' }); }
+});
+
 
 app.delete('/api/users/:id', async (req, res) => {
   try {
@@ -788,6 +824,13 @@ app.post('/api/announcements', async (req, res) => {
     await pool.query('INSERT INTO announcements (id, title, body, audience, priority, posted_by, date) VALUES (?,?,?,?,?,?,CURDATE())',
       [id, title, body || '', audience || 'all', priority || 'low', postedBy]);
     res.json({ success: true, id });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error.' }); }
+});
+
+app.delete('/api/announcements/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM announcements WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
   } catch(e) { console.error(e); res.status(500).json({ error: 'Server error.' }); }
 });
 

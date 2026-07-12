@@ -391,6 +391,12 @@ const DB = {
       body: JSON.stringify(ann)
     }).catch(err => console.error('[CStat DB] Error saving announcement:', err));
   },
+  deleteAnnouncement(id) {
+    const db = this.get();
+    db.announcements = db.announcements.filter(a => a.id !== id);
+    fetch(`${BASE_URL}/api/announcements/${id}`, { method: 'DELETE' })
+      .catch(err => console.error('[CStat DB] Error deleting announcement:', err));
+  },
 
   // ── Departments ──
   getDepartments() { return this.get().departments || []; },
