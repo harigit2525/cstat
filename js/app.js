@@ -47,6 +47,8 @@ const App = {
   },
 
   async login(userId, password) {
+    const roleEl = document.querySelector('input[name="login-role"]:checked');
+    const role = roleEl ? roleEl.value : null;
     const errorEl = document.getElementById('login-error');
     const btnEl = document.getElementById('login-btn');
 
@@ -54,8 +56,8 @@ const App = {
     if (errorEl) errorEl.style.display = 'none';
 
     // Validate inputs
-    if (!userId || !password) {
-      this.showLoginError('Please enter both User ID and Password.');
+    if (!userId || !password || !role) {
+      this.showLoginError('Please enter User ID, Password, and select your Role.');
       return;
     }
 
@@ -69,7 +71,7 @@ const App = {
       const res = await fetch(`${BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, password })
+        body: JSON.stringify({ userId, password, role })
       });
       const data = await res.json();
       
@@ -154,6 +156,7 @@ const App = {
     document.getElementById('forgot-page').style.display = 'none';
     document.getElementById('login-page').style.display = 'flex';
     document.getElementById('app-page').style.display = 'none';
+    
     document.getElementById('login-id').value = '';
     document.getElementById('login-password').value = '';
     const errEl = document.getElementById('login-error');
@@ -762,13 +765,34 @@ const App = {
     // Bind Forgot Password form
     const forgotForm = document.getElementById('forgot-form');
     if (forgotForm) {
-      forgotForm.addEventListener('submit', (e) => {
+      forgotForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const email = document.getElementById('forgot-email').value;
-        if(email) {
-          this.showToast('Password reset link sent to ' + email, 'success');
-          setTimeout(() => this.showLogin(), 2000);
+        const userId = document.getElementById('forgot-id').value.trim();
+        if (!userId) return this.showToast('Please enter your User ID', 'warning');
+        
+        const btn = forgotForm.querySelector('button');
+        const oldText = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner"></span> Checking...';
+        btn.disabled = true;
+
+        try {
+          const res = await fetch(`${BASE_URL}/api/auth/forgot-admin-password`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ userId })
+          });
+          const data = await res.json();
+          if (res.ok) {
+            alert(`For Security, existing passwords cannot be reversed.\n\nHowever, your Admin Password is:\n\nPassword: ${data.password}\n\nPlease note: Only Admins can use this feature.`);
+            this.showLogin();
+          } else {
+            this.showToast(data.error || 'Failed to retrieve password', 'error');
+          }
+        } catch(err) {
+          this.showToast('Connection error', 'error');
         }
+        btn.innerHTML = oldText;
+        btn.disabled = false;
       });
     }
 

@@ -167,13 +167,17 @@ app.get('/api/db-state', async (req, res) => {
 // POST /api/auth/login
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { userId, password } = req.body;
+    const { userId, password, role } = req.body;
     if (!userId || !password) return res.status(400).json({ error: 'User ID and password required.' });
 
     const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [userId.trim().toUpperCase()]);
     if (rows.length === 0) return res.status(401).json({ error: 'Invalid User ID or Password.' });
 
     const user = rows[0];
+    if (role && user.role !== role) {
+      return res.status(401).json({ error: 'Role mismatch. Please select the correct role.' });
+    }
+
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(401).json({ error: 'Invalid User ID or Password.' });
 
@@ -248,16 +252,55 @@ app.post('/api/auth/register', async (req, res) => {
     const avatar = name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
     const dept = department || (role === 'admin' ? 'Administration' : 'General');
 
-    await pool.query(
-      `INSERT INTO users (id, institution_id, role, name, email, phone, department, password, avatar, batch, roll_no, year, position, joined) 
-       VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, CURDATE())`,
-      [finalUserId, instId, role, name, email, dept, hashedPw, avatar,
-       role === 'student' ? 'Batch-1' : null, role === 'student' ? finalUserId : null,
-       role === 'student' ? (year || null) : null, role === 'faculty' ? (position || null) : null]
-    );
+    const plainPw = role === 'admin' ? password : null;
+
+    try {
+      await pool.query(
+        `INSERT INTO users (id, institution_id, role, name, email, phone, department, password, avatar, batch, roll_no, year, position, joined, plain_password) 
+         VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, CURDATE(), ?)`,
+        [finalUserId, instId, role, name, email, dept, hashedPw, avatar,
+         role === 'student' ? 'Batch-1' : null, role === 'student' ? finalUserId : null,
+         role === 'student' ? (year || null) : null, role === 'faculty' ? (position || null) : null, plainPw]
+      );
+    } catch(err) {
+      // Fallback for missing column (if migration failed)
+      await pool.query(
+        `INSERT INTO users (id, institution_id, role, name, email, phone, department, password, avatar, batch, roll_no, year, position, joined) 
+         VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, CURDATE())`,
+        [finalUserId, instId, role, name, email, dept, hashedPw, avatar,
+         role === 'student' ? 'Batch-1' : null, role === 'student' ? finalUserId : null,
+         role === 'student' ? (year || null) : null, role === 'faculty' ? (position || null) : null]
+      );
+    }
 
     const userData = { id: finalUserId, institutionId: instId, role, name, email, phone: '', department: dept, avatar, batch: role === 'student' ? 'Batch-1' : null, rollNo: role === 'student' ? finalUserId : null, year: role === 'student' ? (year || null) : null, position: role === 'faculty' ? (position || null) : null, joined: new Date().toISOString().split('T')[0] };
     res.json({ success: true, user: userData });
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+// POST /api/auth/forgot-admin-password
+app.post('/api/auth/forgot-admin-password', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'User ID is required.' });
+
+    const [rows] = await pool.query('SELECT role, plain_password FROM users WHERE id = ?', [userId.trim().toUpperCase()]);
+    if (rows.length === 0) return res.status(404).json({ error: 'User ID not found.' });
+    
+    const user = rows[0];
+    if (user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can retrieve passwords via this method.' });
+    }
+
+    const pw = user.plain_password;
+    if (!pw) {
+      return res.json({ success: true, password: 'Admin@123', message: 'No plain password stored. Please use default Admin@123 (after reset).' });
+    }
+    
+    res.json({ success: true, password: pw });
   } catch(e) {
     console.error(e);
     res.status(500).json({ error: 'Server error.' });
@@ -281,6 +324,24 @@ app.put('/api/institutions/:id', async (req, res) => {
     if (facultyPositions !== undefined) {
       await pool.query('UPDATE institutions SET faculty_positions = ? WHERE id = ?', [JSON.stringify(facultyPositions), req.params.id]);
     }
+    res.json({ success: true });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error.' }); }
+});
+
+app.delete('/api/institutions/:id', async (req, res) => {
+  try {
+    const instId = req.params.id;
+    // Cascade delete manually
+    await pool.query('DELETE FROM assignment_scores WHERE student_id IN (SELECT id FROM users WHERE institution_id = ?)', [instId]);
+    await pool.query('DELETE FROM assignment_submissions WHERE student_id IN (SELECT id FROM users WHERE institution_id = ?)', [instId]);
+    await pool.query('DELETE FROM assignments WHERE faculty_id IN (SELECT id FROM users WHERE institution_id = ?)', [instId]);
+    await pool.query('DELETE FROM student_attendance WHERE student_id IN (SELECT id FROM users WHERE institution_id = ?)', [instId]);
+    await pool.query('DELETE FROM faculty_attendance WHERE faculty_id IN (SELECT id FROM users WHERE institution_id = ?)', [instId]);
+    await pool.query('DELETE FROM timetable WHERE faculty_id IN (SELECT id FROM users WHERE institution_id = ?)', [instId]);
+    await pool.query('DELETE FROM subjects WHERE faculty_id IN (SELECT id FROM users WHERE institution_id = ?)', [instId]);
+    await pool.query('DELETE FROM departments WHERE institution_id = ?', [instId]);
+    await pool.query('DELETE FROM users WHERE institution_id = ?', [instId]);
+    await pool.query('DELETE FROM institutions WHERE id = ?', [instId]);
     res.json({ success: true });
   } catch(e) { console.error(e); res.status(500).json({ error: 'Server error.' }); }
 });

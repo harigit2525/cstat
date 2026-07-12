@@ -619,9 +619,34 @@ const AdminViews = {
             <div class="profile-detail-item"><div class="detail-label">Department</div><div class="detail-value">${u.department}</div></div>
             <div class="profile-detail-item"><div class="detail-label">Joined</div><div class="detail-value">${formatDate(u.joined)}</div></div>
           </div>
+          
+          <div style="margin-top:20px; text-align:center;">
+            <button class="btn btn-danger" onclick="AdminViews.deleteInstitution()">Delete Institution Data</button>
+          </div>
         </div>
         <div class="glass-card"><div class="card-header"><h4>My QR Code</h4></div><div class="card-body"><div class="qr-display"><div class="qr-frame" id="admin-qr"></div><div class="qr-instructions">This QR uniquely identifies your admin account</div></div></div></div>
       </div></div>`;
     setTimeout(() => QRManager.render('admin-qr', u, 200), 100);
+  },
+
+  async deleteInstitution() {
+    const confirmDelete = confirm("WARNING: This will delete ALL data associated with your institution, including all users, attendance, and timetable records. This action CANNOT BE UNDONE. Are you absolutely sure?");
+    if (!confirmDelete) return;
+    
+    try {
+      const instId = App.currentUser.institutionId;
+      const res = await fetch(`${BASE_URL}/api/institutions/${instId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (res.ok) {
+        alert("Institution deleted successfully. You will be logged out.");
+        App.logout();
+      } else {
+        App.showToast("Failed to delete institution.", "error");
+      }
+    } catch(err) {
+      App.showToast("Server connection error.", "error");
+    }
   }
 };

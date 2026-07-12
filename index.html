@@ -40,6 +40,15 @@
         </div>
 
         <div class="form-group">
+          <label class="form-label">I am a...</label>
+          <div class="role-selector" style="display:flex;gap:10px;margin-bottom:15px;">
+            <label class="radio-btn flex-1"><input type="radio" name="login-role" value="student" checked /> Student</label>
+            <label class="radio-btn flex-1"><input type="radio" name="login-role" value="faculty" /> Faculty</label>
+            <label class="radio-btn flex-1"><input type="radio" name="login-role" value="admin" /> Admin</label>
+          </div>
+        </div>
+
+        <div class="form-group">
           <label class="form-label" for="login-id">User ID</label>
           <div class="input-icon-wrap">
             <span class="icon-person input-icon"></span>
@@ -208,13 +217,13 @@
       </div>
       <form id="forgot-form" autocomplete="off">
         <div class="form-group">
-          <label class="form-label" for="forgot-email">Email Address</label>
+          <label class="form-label" for="forgot-id">Admin User ID</label>
           <div class="input-icon-wrap">
-            <span class="icon-mail input-icon"></span>
-            <input type="email" class="form-input" id="forgot-email" placeholder="john@example.com" required />
+            <span class="icon-person input-icon"></span>
+            <input type="text" class="form-input" id="forgot-id" placeholder="e.g. ADMIN001" required />
           </div>
         </div>
-        <button type="submit" class="btn btn-primary login-btn">Send Reset Link</button>
+        <button type="submit" class="btn btn-primary login-btn">Show Password</button>
         <p class="text-muted text-center" style="margin-top: 20px; font-size: var(--fs-sm);">
           Remember your password? <a href="#" class="form-link" onclick="App.showLogin(event)">Back to Sign In</a>
         </p>
